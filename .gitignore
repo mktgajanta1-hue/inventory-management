@@ -1,0 +1,49 @@
+# Secrets & local config
+.env
+.env.*
+!.env.example
+secret.key
+backend/secret.key
+
+# Legacy SQLite databases and backups
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sql
+*.dump
+
+# Uploaded screen photos (user data, kept on a volume — not in git).
+# The seed photos that ship with the repo are force-added below.
+frontend/photos/*
+!frontend/photos/sishubhawan.jpg
+!frontend/photos/housing_board.jpg
+!frontend/photos/janpath_lyfe.jpg
+!frontend/photos/kalpana.jpg
+!frontend/photos/sriya.jpg
+!frontend/photos/rajmahal.jpg
+!frontend/photos/rupali.jpg
+!frontend/photos/vani_vihar.jpg
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# PyInstaller build output
+backend/build/
+backend/dist/
+*.spec
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

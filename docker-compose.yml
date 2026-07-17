@@ -1,0 +1,47 @@
+# Local production-parity stack: app + PostgreSQL.
+#   cp .env.example .env      (edit ADMIN_PASSWORD / SECRET_KEY)
+#   docker compose up --build
+#   open http://localhost:8000
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mediatrack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mediatrack}
+      POSTGRES_DB: ${POSTGRES_DB:-mediatrack}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"          # handy for psql / GUI clients; drop if not needed
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mediatrack} -d ${POSTGRES_DB:-mediatrack}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mediatrack}:${POSTGRES_PASSWORD:-mediatrack}@db:5432/${POSTGRES_DB:-mediatrack}
+      SECRET_KEY: ${SECRET_KEY:-dev-only-secret-change-me}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_NAME: ${ADMIN_NAME:-Admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ajanta123}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      PHOTOS_DIR: /data/photos
+      PORT: 8000
+    volumes:
+      - photos:/data/photos   # uploads survive rebuilds
+    ports:
+      - "8000:8000"
+
+volumes:
+  db_data:
+  photos:

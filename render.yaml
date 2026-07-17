@@ -1,0 +1,42 @@
+# Render blueprint — deploy with: New → Blueprint → point at this repo.
+services:
+  - type: web
+    name: mediatrack
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter          # a persistent disk requires starter or above
+    region: singapore      # closest to Bhubaneswar; change if you prefer
+    healthCheckPath: /api/health
+    autoDeploy: true
+
+    disk:
+      name: mediatrack-photos
+      mountPath: /data     # uploaded screen photos live here, not in the image
+      sizeGB: 1
+
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mediatrack-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true        # generated once, then stable across deploys
+      - key: ENVIRONMENT
+        value: production
+      - key: PHOTOS_DIR
+        value: /data/photos
+      - key: CORS_ORIGINS
+        value: ""                  # dashboard is same-origin; no CORS needed
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_NAME
+        value: Admin
+      - key: ADMIN_PASSWORD
+        sync: false                # set this in the Render dashboard, first boot only
+
+databases:
+  - name: mediatrack-db
+    databaseName: mediatrack
+    user: mediatrack
+    plan: basic-256mb
+    region: singapore

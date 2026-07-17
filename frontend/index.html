@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ajanta Advertisers — MediaTrack</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230a0709'/><rect x='6' y='9' width='20' height='11' rx='2' fill='none' stroke='%23ff3b4e' stroke-width='2'/><rect x='9' y='12' width='5' height='5' rx='1' fill='%23ff3b4e'/><rect x='16' y='12' width='5' height='5' rx='1' fill='%237a1620'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* Tells the browser this is a dark UI. Without it, every control the
+       browser paints itself (date picker icon + popup, select dropdown,
+       file button, scrollbars) is drawn in light mode — which is why the
+       calendar icon was a black glyph on a black field. */
+    color-scheme:dark;
+    --bg:#08070a; --glass:rgba(255,255,255,.035); --glass2:rgba(255,255,255,.06);
+    --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.14);
+    --ivory:#f2edea; --muted:#9d9297;
+    --red:#ff3b4e; --red2:#c11527; --red-dim:#7a1620;
+    --live:#4fd08a; --warn:#f0a94b;
+    --f-brand:'Marcellus',serif; --f-ui:'Inter',sans-serif; --f-mono:'IBM Plex Mono',monospace;
+    --r:18px; --r-sm:12px;
+    --shadow:0 18px 45px rgba(0,0,0,.55);
+    --glow:0 0 42px rgba(255,59,78,.16);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--ivory);font-family:var(--f-ui);font-size:15px;line-height:1.55;
+    min-height:100vh;overflow-x:hidden}
+
+  /* ---- ambient animated background ---- */
+  .ambient{position:fixed;inset:0;z-index:-2;overflow:hidden;background:
+    radial-gradient(900px 500px at 80% -5%,rgba(255,59,78,.10),transparent 60%),
+    radial-gradient(700px 450px at -5% 100%,rgba(109,93,252,.07),transparent 55%),var(--bg)}
+  .blob{position:absolute;width:60vw;height:60vw;border-radius:50%;filter:blur(90px);opacity:.35;will-change:transform}
+  .blob.a{background:radial-gradient(circle,rgba(255,59,78,.16),transparent 65%);top:-25vw;right:-15vw;
+    animation:drift1 26s ease-in-out infinite alternate}
+  .blob.b{background:radial-gradient(circle,rgba(109,93,252,.10),transparent 65%);bottom:-30vw;left:-18vw;
+    animation:drift2 32s ease-in-out infinite alternate}
+  @keyframes drift1{to{transform:translate(-9vw,7vh) scale(1.12)}}
+  @keyframes drift2{to{transform:translate(7vw,-6vh) scale(1.08)}}
+  .noise{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E")}
+
+  /* ---- splash ---- */
+  #splash{position:fixed;inset:0;z-index:200;display:flex;flex-direction:column;gap:26px;align-items:center;justify-content:center;
+    background:var(--bg);transition:opacity .55s ease,visibility .55s}
+  #splash.done{opacity:0;visibility:hidden}
+  #splash .brand{font-family:var(--f-brand);font-size:clamp(26px,4.5vw,42px);letter-spacing:.22em;color:var(--ivory);
+    animation:rise .8s cubic-bezier(.2,.7,.2,1) both}
+  #splash .brand b{color:var(--red);font-weight:400}
+  #splash .loopbar{display:flex;gap:6px}
+  #splash .loopbar i{width:26px;height:7px;border-radius:4px;background:var(--glass2);overflow:hidden;position:relative}
+  #splash .loopbar i::after{content:"";position:absolute;inset:0;border-radius:4px;
+    background:linear-gradient(90deg,#ff5b6b,#c11527);transform:scaleX(0);transform-origin:left;
+    animation:fill 1.5s ease-in-out infinite}
+  #splash .loopbar i:nth-child(2)::after{animation-delay:.18s}
+  #splash .loopbar i:nth-child(3)::after{animation-delay:.36s}
+  #splash .loopbar i:nth-child(4)::after{animation-delay:.54s}
+  #splash .loopbar i:nth-child(5)::after{animation-delay:.72s}
+  @keyframes fill{0%{transform:scaleX(0)}55%{transform:scaleX(1)}100%{transform:scaleX(1);opacity:.25}}
+  #splash small{font-family:var(--f-mono);font-size:11px;letter-spacing:.28em;color:var(--muted);text-transform:uppercase}
+
+  /* ---- header ---- */
+  header{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:22px;padding:16px 30px;
+    background:rgba(10,8,11,.62);backdrop-filter:blur(20px) saturate(1.3);-webkit-backdrop-filter:blur(20px) saturate(1.3);
+    border-bottom:1px solid var(--line)}
+  .plaque{display:flex;align-items:baseline;gap:13px}
+  .plaque h1{font-family:var(--f-brand);font-size:21px;letter-spacing:.16em;font-weight:400;
+    background:linear-gradient(92deg,#ffe9ea,#ff8b96 55%,var(--red));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .plaque span{font-size:10.5px;letter-spacing:.26em;color:var(--muted);text-transform:uppercase}
+  .spacer{flex:1}
+  .conn{font-family:var(--f-mono);font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:7px}
+  .conn .dot{width:7px;height:7px;border-radius:50%;background:var(--live);box-shadow:0 0 10px var(--live);animation:pulse 2.4s infinite}
+  .conn.demo .dot{background:var(--warn);box-shadow:0 0 10px var(--warn)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  #today{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+
+  /* ---- nav: segmented glass pill with sliding indicator ---- */
+  nav{position:relative;display:inline-flex;gap:2px;margin:20px 30px 0;padding:5px;border-radius:999px;
+    background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(14px)}
+  nav .ind{position:absolute;top:5px;bottom:5px;border-radius:999px;
+    background:linear-gradient(180deg,rgba(255,59,78,.22),rgba(193,21,39,.16));
+    border:1px solid rgba(255,59,78,.4);box-shadow:0 0 18px rgba(255,59,78,.22);
+    transition:transform .35s cubic-bezier(.3,.8,.3,1),width .35s cubic-bezier(.3,.8,.3,1);will-change:transform,width}
+  nav button{position:relative;z-index:1;background:none;border:none;color:var(--muted);font-family:var(--f-ui);
+    font-size:13.5px;font-weight:500;letter-spacing:.02em;padding:9px 20px;cursor:pointer;border-radius:999px;
+    transition:color .25s}
+  nav button.on,nav button:hover{color:var(--ivory)}
+  nav button:focus-visible{outline:2px solid var(--red);outline-offset:2px}
+
+  main{padding:24px 30px 70px;max-width:1340px;margin:0 auto}
+
+  /* ---- KPI cards ---- */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin-bottom:30px}
+  .stat{position:relative;display:flex;align-items:center;gap:16px;padding:18px 20px;border-radius:var(--r);
+    background:linear-gradient(160deg,var(--glass2),var(--glass));border:1px solid var(--line);
+    backdrop-filter:blur(16px);box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.07);
+    animation:rise .6s cubic-bezier(.2,.7,.2,1) both;animation-delay:calc(var(--i,0)*.07s)}
+  .stat::after{content:"";position:absolute;inset:0;border-radius:var(--r);pointer-events:none;
+    background:linear-gradient(120deg,transparent 40%,rgba(255,255,255,.05) 50%,transparent 60%)}
+  .stat .ring{flex:0 0 58px}
+  .ring svg{display:block;transform:rotate(-90deg)}
+  .ring .bgc{stroke:rgba(255,255,255,.08);fill:none}
+  .ring .fgc{stroke:url(#ringGrad);fill:none;stroke-linecap:round;stroke-dasharray:138.2;
+    transition:stroke-dashoffset 1s cubic-bezier(.3,.8,.3,1)}
+  .stat .n{font-family:var(--f-mono);font-size:27px;font-weight:500;line-height:1.05}
+  .stat .n.red{color:var(--red)}
+  .stat .l{font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-top:3px}
+  @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+
+  h2{font-family:var(--f-brand);font-weight:400;font-size:16px;letter-spacing:.14em;color:var(--ivory);
+    margin:34px 0 16px;text-transform:uppercase;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  h2 small{font-family:var(--f-mono);font-size:11px;color:var(--muted);letter-spacing:0;text-transform:none}
+  h2 .spark{margin-left:auto}
+  .spark svg{display:block}
+
+  /* ---- screen cards: premium product cards ---- */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:20px;perspective:1400px}
+  .board{position:relative;border-radius:var(--r);cursor:pointer;overflow:hidden;
+    background:linear-gradient(165deg,rgba(255,255,255,.055),rgba(255,255,255,.02));
+    border:1px solid var(--line);backdrop-filter:blur(14px);
+    box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.07);
+    transition:box-shadow .3s ease,border-color .3s ease;
+    transform-style:preserve-3d;will-change:transform;
+    animation:rise .6s cubic-bezier(.2,.7,.2,1) both;animation-delay:calc(var(--i,0)*.06s)}
+  .board:hover{border-color:rgba(255,59,78,.45);box-shadow:var(--shadow),var(--glow),inset 0 1px 0 rgba(255,255,255,.09)}
+  .bphoto{position:relative;height:158px;overflow:hidden;background:#0a0709}
+  .bphoto img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .5s cubic-bezier(.2,.7,.2,1)}
+  .board:hover .bphoto img{transform:scale(1.07)}
+  .bphoto::before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+    background:linear-gradient(115deg,transparent 32%,rgba(255,255,255,.12) 46%,transparent 58%);
+    transform:translateX(-70%);transition:transform .7s ease}
+  .board:hover .bphoto::before{transform:translateX(70%)}
+  .bphoto::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 45%,rgba(8,7,10,.95))}
+  .bbody{padding:15px 17px 15px}
+  .board h3{font-size:15.5px;font-weight:600;letter-spacing:.01em}
+  .board .loc{font-size:12.5px;color:var(--muted)}
+  .board .spec{font-family:var(--f-mono);font-size:10.5px;color:var(--muted);margin:9px 0 11px}
+  .board .spec b{color:var(--ivory);font-weight:500}
+  .loop{display:flex;gap:4px;margin-bottom:11px}
+  .seg{flex:1;height:7px;border-radius:4px;background:rgba(255,255,255,.08)}
+  .seg.on{background:linear-gradient(90deg,#ff5b6b,#c11527);box-shadow:0 0 9px rgba(255,59,78,.65)}
+  .adv{font-size:12.5px;display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-top:1px dashed var(--line)}
+  .adv:first-of-type{border-top:0}
+  .adv .co{color:var(--ivory)}
+  .adv .dl{font-family:var(--f-mono);font-size:11px;color:var(--muted);white-space:nowrap}
+  .adv .dl.soon{color:var(--warn)}
+  .board .foot{margin-top:11px;padding-top:10px;border-top:1px solid var(--line);
+    display:flex;justify-content:space-between;font-family:var(--f-mono);font-size:11px}
+  .open-now{color:var(--live)} .fullx{color:var(--muted)} .next{color:var(--muted)}
+  .badge-live{position:absolute;top:12px;left:12px;z-index:2;display:flex;align-items:center;gap:6px;
+    font-family:var(--f-mono);font-size:10px;letter-spacing:.12em;padding:4px 10px;border-radius:999px;
+    background:rgba(8,7,10,.55);border:1px solid var(--line2);backdrop-filter:blur(8px)}
+  .badge-live .dot{width:6px;height:6px;border-radius:50%;background:var(--live);box-shadow:0 0 8px var(--live);animation:pulse 2s infinite}
+  .badge-live.empty .dot{background:var(--muted);box-shadow:none;animation:none}
+
+  /* ---- skeletons ---- */
+  .skel{border-radius:var(--r);border:1px solid var(--line);background:var(--glass);overflow:hidden;height:305px;position:relative}
+  .skel::after{content:"";position:absolute;inset:0;
+    background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.07) 50%,transparent 70%);
+    animation:shimmer 1.4s infinite}
+  @keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+
+  /* ---- tables ---- */
+  .tbl{border-radius:var(--r);overflow:auto;border:1px solid var(--line);background:var(--glass);backdrop-filter:blur(14px);
+    box-shadow:var(--shadow)}
+  table{width:100%;border-collapse:collapse;min-width:640px}
+  th{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:600;
+    text-align:left;padding:12px 16px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.03)}
+  td{padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px}
+  tr:last-child td{border-bottom:0}
+  td.mono{font-family:var(--f-mono);font-size:12px}
+  tbody tr{transition:background .2s}
+  tbody tr:hover{background:rgba(255,255,255,.045)}
+  td .pill{display:inline-block;font-family:var(--f-mono);font-size:10.5px;padding:2px 10px;border-radius:999px;
+    border:1px solid var(--line2);color:var(--muted)}
+  td .pill.soon{border-color:rgba(240,169,75,.55);color:var(--warn);background:rgba(240,169,75,.08)}
+  td .pill.live{border-color:rgba(79,208,138,.5);color:var(--live);background:rgba(79,208,138,.07)}
+  td .pill.up{border-color:rgba(255,59,78,.5);color:var(--red);background:rgba(255,59,78,.07)}
+  .stop{background:rgba(255,255,255,.04);border:1px solid var(--line);color:var(--muted);font-family:var(--f-mono);
+    font-size:11px;padding:4px 12px;border-radius:8px;cursor:pointer;transition:all .2s}
+  .stop:hover{border-color:rgba(240,169,75,.6);color:var(--warn);background:rgba(240,169,75,.06)}
+
+  /* ---- calendar heatmap ---- */
+  .cal-row{display:grid;grid-template-columns:220px 1fr;gap:16px;align-items:center;padding:12px 0;
+    border-bottom:1px solid rgba(255,255,255,.05)}
+  .cal-row .nm{font-size:13px;font-weight:500}
+  .cal-row .nm small{display:block;font-family:var(--f-mono);font-size:10.5px;color:var(--muted);font-weight:400}
+  .strip{display:grid;grid-template-columns:repeat(30,1fr);gap:3px}
+  .day{height:24px;border-radius:6px;background:rgba(255,255,255,.06);position:relative;cursor:default;
+    transition:transform .15s,box-shadow .15s}
+  .day:hover{transform:translateY(-2px) scale(1.12);box-shadow:0 6px 14px rgba(0,0,0,.5);z-index:3}
+  .day[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:30px;left:50%;transform:translateX(-50%);
+    background:rgba(12,9,11,.95);border:1px solid var(--line2);color:var(--ivory);font-family:var(--f-mono);
+    font-size:10.5px;padding:4px 9px;border-radius:8px;white-space:nowrap;z-index:5;backdrop-filter:blur(8px)}
+  .legend{display:flex;gap:18px;font-family:var(--f-mono);font-size:11px;color:var(--muted);margin:6px 0 18px}
+  .legend i{display:inline-block;width:15px;height:11px;border-radius:4px;margin-right:6px;vertical-align:baseline}
+
+  /* ---- forms ---- */
+  .frm{border-radius:var(--r);border:1px solid var(--line);background:var(--glass);backdrop-filter:blur(14px);
+    box-shadow:var(--shadow);padding:22px;margin-bottom:22px;animation:rise .5s ease both}
+  .frm h3{font-family:var(--f-brand);font-weight:400;font-size:13.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--red);margin-bottom:16px}
+  .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:14px}
+  label{display:block;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;font-weight:600}
+  input,select{width:100%;background:rgba(0,0,0,.35);border:1px solid var(--line);color:var(--ivory);
+    font-family:var(--f-mono);font-size:13px;padding:10px 12px;border-radius:var(--r-sm);
+    transition:border-color .2s,box-shadow .2s}
+  input:focus,select:focus{outline:none;border-color:rgba(255,59,78,.6);box-shadow:0 0 0 3px rgba(255,59,78,.15)}
+  input[type=file]{padding:8px}
+  /* Native controls, themed. color-scheme:dark already makes the calendar
+     glyph light — these just make it feel deliberate rather than default. */
+  input[type=date]::-webkit-calendar-picker-indicator{
+    opacity:.6;cursor:pointer;padding:2px;border-radius:4px;transition:opacity .2s,background .2s}
+  input[type=date]:hover::-webkit-calendar-picker-indicator,
+  input[type=date]:focus::-webkit-calendar-picker-indicator{opacity:1;background:rgba(255,59,78,.18)}
+  input[type=file]::file-selector-button{
+    background:var(--glass2);color:var(--ivory);border:1px solid var(--line2);border-radius:999px;
+    padding:6px 14px;margin-right:10px;cursor:pointer;font-family:var(--f-ui);font-size:12px;
+    transition:border-color .2s,color .2s}
+  input[type=file]::file-selector-button:hover{border-color:var(--red);color:var(--red)}
+  .btn{position:relative;overflow:hidden;background:linear-gradient(180deg,#ff4a5c,#b3121f);border:none;color:#fff;
+    font-family:var(--f-ui);font-weight:600;font-size:13px;letter-spacing:.04em;padding:11px 24px;border-radius:var(--r-sm);
+    cursor:pointer;box-shadow:0 8px 22px rgba(255,59,78,.3),inset 0 1px 0 rgba(255,255,255,.3);
+    transition:transform .18s,box-shadow .18s,filter .18s}
+  .btn:hover{filter:brightness(1.08);transform:translateY(-1px);box-shadow:0 12px 28px rgba(255,59,78,.38),inset 0 1px 0 rgba(255,255,255,.3)}
+  .btn:active{transform:translateY(1px) scale(.99)}
+  .btn:focus-visible{outline:2px solid var(--ivory);outline-offset:2px}
+  .btn.danger{background:rgba(255,255,255,.05);color:var(--warn);box-shadow:inset 0 0 0 1px var(--line2)}
+  .btn.danger:hover{box-shadow:inset 0 0 0 1px rgba(240,169,75,.6)}
+  .ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,.45);transform:scale(0);
+    animation:rip .55s ease-out forwards;pointer-events:none}
+  @keyframes rip{to{transform:scale(3.2);opacity:0}}
+  .msg{font-family:var(--f-mono);font-size:12px;margin-left:12px}
+  .msg.ok{color:var(--live)} .msg.err{color:var(--warn)}
+  .banner{border-radius:var(--r-sm);background:rgba(240,169,75,.07);border:1px solid rgba(240,169,75,.4);
+    color:var(--warn);font-size:13px;padding:13px 17px;margin-bottom:20px}
+
+  /* ---- modal ---- */
+  .overlay{position:fixed;inset:0;background:rgba(5,4,6,.72);backdrop-filter:blur(10px);
+    display:flex;align-items:center;justify-content:center;padding:20px;z-index:60;
+    animation:fadein .25s ease}
+  @keyframes fadein{from{opacity:0}}
+  .modal{border-radius:22px;overflow:hidden;background:linear-gradient(170deg,rgba(30,20,23,.92),rgba(14,10,12,.96));
+    border:1px solid var(--line2);max-width:660px;width:100%;max-height:90vh;overflow-y:auto;
+    box-shadow:0 40px 100px rgba(0,0,0,.8),0 0 70px rgba(255,59,78,.12);
+    animation:pop .35s cubic-bezier(.2,.9,.3,1.15)}
+  @keyframes pop{from{opacity:0;transform:translateY(18px) scale(.96)}}
+  .modal .mphoto{height:250px;overflow:hidden;background:#0a0709}
+  .modal .mphoto img{width:100%;height:100%;object-fit:cover}
+  .modal .body{padding:22px}
+  .modal h3{font-family:var(--f-brand);font-weight:400;font-size:21px;letter-spacing:.07em;color:var(--red)}
+  .modal .mloc{color:var(--muted);font-size:13px;margin-bottom:6px}
+  .modal .mspec{font-family:var(--f-mono);font-size:11.5px;color:var(--muted);margin-bottom:16px}
+  .mstats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+  .mstats div{border-radius:var(--r-sm);background:rgba(255,255,255,.045);border:1px solid var(--line);
+    padding:12px;text-align:center}
+  .mstats .n{font-family:var(--f-mono);font-size:22px}
+  .mstats .l{font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
+  .mclose{float:right;background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--muted);font-size:13px;
+    padding:6px 14px;border-radius:10px;cursor:pointer;transition:all .2s}
+  .mclose:hover{color:var(--ivory);border-color:var(--line2)}
+  .mbook{margin-top:16px}
+
+  /* ---- toasts ---- */
+  #toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:10px;z-index:99}
+  .toast{border-radius:14px;background:rgba(18,13,15,.85);backdrop-filter:blur(16px);
+    border:1px solid var(--line2);border-left:3px solid var(--live);
+    color:var(--ivory);font-size:13px;padding:12px 18px;box-shadow:0 16px 40px rgba(0,0,0,.6);min-width:230px;
+    animation:slidein .3s cubic-bezier(.2,.8,.3,1.1)}
+  .toast.err{border-left-color:var(--red)}
+  @keyframes slidein{from{transform:translateX(26px);opacity:0}}
+
+  footer{border-top:1px solid var(--line);padding:16px 30px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;
+    font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+
+  /* login */
+  #login{position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;
+    background:rgba(5,4,6,.8);backdrop-filter:blur(14px)}
+  #login.hide{display:none}
+  #login .card{width:min(400px,92vw);border-radius:22px;padding:34px 30px;
+    background:linear-gradient(170deg,rgba(30,20,23,.92),rgba(14,10,12,.96));
+    border:1px solid var(--line2);box-shadow:0 40px 100px rgba(0,0,0,.8),0 0 70px rgba(255,59,78,.12);
+    animation:pop .4s cubic-bezier(.2,.9,.3,1.15)}
+  #login h3{font-family:var(--f-brand);font-weight:400;font-size:19px;letter-spacing:.14em;color:var(--ivory);
+    text-transform:uppercase;margin-bottom:4px}
+  #login h3 b{color:var(--red);font-weight:400}
+  #login p{font-size:12px;color:var(--muted);margin-bottom:20px}
+  #login .row{grid-template-columns:1fr}
+  .userchip{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)}
+  .userchip b{color:var(--ivory);font-weight:600}
+  .userchip .role{font-family:var(--f-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    padding:2px 9px;border-radius:999px;border:1px solid rgba(255,59,78,.5);color:var(--red)}
+  .linkbtn{background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;text-decoration:underline}
+  .linkbtn:hover{color:var(--ivory)}
+  /* revenue */
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;align-items:center}
+  .chip{background:var(--glass);border:1px solid var(--line);color:var(--muted);font-size:12.5px;font-weight:500;
+    padding:7px 15px;border-radius:999px;cursor:pointer;transition:all .2s}
+  .chip:hover{color:var(--ivory);border-color:var(--line2)}
+  .chip.on{color:var(--ivory);border-color:rgba(255,59,78,.55);background:rgba(255,59,78,.12);
+    box-shadow:0 0 14px rgba(255,59,78,.15)}
+  .chips input[type=date]{width:auto;padding:6px 10px;font-size:12px}
+  .barrow{display:grid;grid-template-columns:170px 1fr 90px;gap:12px;align-items:center;padding:7px 0;
+    border-bottom:1px solid rgba(255,255,255,.05);font-size:13px}
+  .barrow:last-child{border-bottom:0}
+  .barrow .bar{height:10px;border-radius:6px;background:rgba(255,255,255,.06);overflow:hidden}
+  .barrow .bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,#ff5b6b,#c11527);
+    box-shadow:0 0 10px rgba(255,59,78,.4);transition:width .8s cubic-bezier(.3,.8,.3,1)}
+  .barrow .v{font-family:var(--f-mono);font-size:12px;text-align:right}
+  .trend{display:flex;align-items:flex-end;gap:6px;height:130px;padding:6px 2px 0}
+  .trend .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}
+  .trend .col i{width:100%;max-width:34px;border-radius:7px 7px 3px 3px;
+    background:linear-gradient(180deg,#ff5b6b,#b3121f);box-shadow:0 0 12px rgba(255,59,78,.25);
+    transition:height .8s cubic-bezier(.3,.8,.3,1)}
+  .trend .col small{font-family:var(--f-mono);font-size:9px;color:var(--muted);white-space:nowrap}
+  @media print{
+    header,nav,footer,#toasts,.ambient,.noise,#view-dash,#view-cal,#view-manage,.chips .btn,.no-print{display:none!important}
+    #view-rev{display:block!important}
+    body{background:#fff;color:#111}
+    .frm,.stat{background:#fff;border:1px solid #ddd;box-shadow:none;backdrop-filter:none}
+    .stat .n,.modal h3{color:#111}
+  }
+  .note{font-size:12px;color:var(--muted);margin-top:10px}
+  .loadingtxt{color:var(--muted);font-family:var(--f-mono);font-size:13px}
+  .hide{display:none}
+  @media (max-width:640px){
+    header{padding:12px 16px;flex-wrap:wrap} main{padding:16px 16px 60px}
+    nav{margin:16px 16px 0;width:calc(100% - 32px);justify-content:space-between}
+    nav button{padding:9px 12px;font-size:12.5px}
+    .cal-row{grid-template-columns:1fr;gap:8px}
+    h2 .spark{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001s!important;transition-duration:.001s!important}
+    .blob{animation:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient"><div class="blob a"></div><div class="blob b"></div></div>
+<div class="noise"></div>
+
+<div id="splash">
+  <div class="brand">AJANTA <b>ADVERTISERS</b></div>
+  <div class="loopbar"><i></i><i></i><i></i><i></i><i></i></div>
+  <small>MediaTrack · Digital Network</small>
+</div>
+
+<svg width="0" height="0" style="position:absolute"><defs>
+  <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#ff5b6b"/><stop offset="100%" stop-color="#c11527"/>
+  </linearGradient>
+  <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="rgba(255,59,78,.35)"/><stop offset="100%" stop-color="rgba(255,59,78,0)"/>
+  </linearGradient>
+</defs></svg>
+
+<header>
+  <div class="plaque"><h1>AJANTA ADVERTISERS</h1><span>MediaTrack · Digital Network</span></div>
+  <div class="spacer"></div>
+  <div class="userchip hide" id="userchip"><b id="u-name"></b><span class="role" id="u-role"></span>
+    <button class="linkbtn" id="btn-logout">logout</button></div>
+  <div class="conn demo" id="conn"><span class="dot"></span><span id="conn-t">demo data</span></div>
+  <div id="today"></div>
+</header>
+
+<nav id="nav">
+  <span class="ind" id="nav-ind"></span>
+  <button class="on" data-view="dash">Dashboard</button>
+  <button data-view="cal">Availability</button>
+  <button data-view="manage">Manage</button>
+  <button data-view="rev" id="nav-rev" class="hide">Revenue</button>
+</nav>
+
+<main>
+  <section id="view-dash">
+    <div class="stats" id="stats"></div>
+    <h2>Screen Network <small id="screen-count"></small>
+      <span class="spark" id="spark" title="Network occupancy — next 30 days"></span></h2>
+    <div class="grid" id="screens"></div>
+    <h2>Live Now <small>every advertiser currently on air</small></h2>
+    <div class="tbl"><table>
+      <thead><tr id="live-head"><th>Screen</th><th>Advertiser</th><th>Campaign</th><th>Pos</th><th>Ends</th><th>Days Left</th></tr></thead>
+      <tbody id="live-body"></tbody>
+    </table></div>
+  </section>
+
+  <section id="view-cal" class="hide">
+    <h2>Next 30 Days <small>loop occupancy per screen — brighter red = fuller loop</small></h2>
+    <div class="legend">
+      <span><i style="background:rgba(255,255,255,.08)"></i>empty</span>
+      <span><i style="background:rgba(255,59,78,.5)"></i>part-booked</span>
+      <span><i style="background:#ff3b4e"></i>full loop</span>
+    </div>
+    <div class="frm" style="padding:10px 22px" id="cal-rows"></div>
+    <p class="note">Hover any day for booked / total slots.</p>
+  </section>
+
+  <section id="view-manage" class="hide">
+    <div class="frm" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px">
+        <h3 style="margin-bottom:6px">Backup</h3>
+        <p style="font-size:12.5px;color:var(--muted)">Downloads the full database as one file — screens, clients, every booking. Do this weekly, or before any big update.</p>
+      </div>
+      <a class="btn" id="btn-backup" href="#" download>Download Backup</a>
+    </div>
+    <div id="manage-banner" class="banner hide">
+      Manage works when the backend is running. Start MediaTrack, then refresh this page — the header dot should turn green.
+    </div>
+
+    <form class="frm" id="f-book">
+      <h3>Book a Slot</h3>
+      <div class="row">
+        <div><label>Screen</label><select id="b-screen" required></select></div>
+        <div><label>Client / Company Name</label><input id="b-client" list="client-list" required placeholder="Type client name"><datalist id="client-list"></datalist></div>
+        <div><label>Campaign Name</label><input id="b-name" required placeholder="Diwali Burst"></div>
+        <div><label>Creative</label><input id="b-creative" placeholder="AC Offer 15s"></div>
+      </div>
+      <div class="row">
+        <div><label>Start Date</label><input id="b-start" type="date" required></div>
+        <div><label>End Date</label><input id="b-end" type="date" required></div>
+        <div><label>Booking Amount ₹ (blank = card rate × duration)</label><input id="b-rate" type="number" min="0" placeholder="auto"></div>
+      </div>
+      <button class="btn" type="submit">Book Slot</button><span class="msg" id="m-book"></span>
+    </form>
+
+    <div class="frm">
+      <h3>All Bookings</h3>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Live, upcoming, and last 14 days. Delete removes a booking permanently — use "End now" on the Dashboard to just take a live ad off air.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>Screen</th><th>Client</th><th>Campaign</th><th>Pos</th><th>Start</th><th>End</th><th>Amount</th><th>Status</th><th>Booked By</th><th></th></tr></thead>
+        <tbody id="bk-body"><tr><td colspan="8" class="loadingtxt">Backend required.</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <form class="frm" id="f-screen">
+      <h3>Add a New Display</h3>
+      <div class="row">
+        <div><label>Name</label><input id="s-name" required placeholder="Baramunda LED"></div>
+        <div><label>Location</label><input id="s-loc" required placeholder="Baramunda Bus Stand"></div>
+        <div><label>City</label><input id="s-city" value="Bhubaneswar"></div>
+      </div>
+      <div class="row">
+        <div><label>Width (ft)</label><input id="s-w" type="number" step="0.5" required placeholder="20"></div>
+        <div><label>Height (ft)</label><input id="s-h" type="number" step="0.5" required placeholder="10"></div>
+        <div><label>Res Width (px)</label><input id="s-rw" type="number" placeholder="1600"></div>
+        <div><label>Res Height (px)</label><input id="s-rh" type="number" placeholder="800"></div>
+      </div>
+      <div class="row">
+        <div><label>Loop Slots</label><input id="s-loop" type="number" value="8" min="1"></div>
+        <div><label>Slot Seconds</label><input id="s-sec" type="number" value="15" min="5"></div>
+        <div><label>Card Rate / Month (₹)</label><input id="s-rate" type="number" min="0" placeholder="150000"></div>
+        <div><label>Board Photo (optional)</label><input id="s-photo" type="file" accept="image/*"></div>
+      </div>
+      <button class="btn" type="submit">Add Display</button><span class="msg" id="m-screen"></span>
+    </form>
+
+    <form class="frm" id="f-edit">
+      <h3>Update a Display</h3>
+      <div class="row">
+        <div><label>Choose Screen</label><select id="e-screen"></select></div>
+        <div><label>Name</label><input id="e-name" required></div>
+        <div><label>Location</label><input id="e-loc" required></div>
+        <div><label>City</label><input id="e-city"></div>
+      </div>
+      <div class="row">
+        <div><label>Width (ft)</label><input id="e-w" type="number" step="0.5" required></div>
+        <div><label>Height (ft)</label><input id="e-h" type="number" step="0.5" required></div>
+        <div><label>Res W (px)</label><input id="e-rw" type="number"></div>
+        <div><label>Res H (px)</label><input id="e-rh" type="number"></div>
+      </div>
+      <div class="row">
+        <div><label>Loop Slots</label><input id="e-loop" type="number" min="1"></div>
+        <div><label>Slot Seconds</label><input id="e-sec" type="number" min="5"></div>
+        <div><label>Rate / Month (₹)</label><input id="e-rate" type="number" min="0"></div>
+        <div><label>Replace Photo</label><input id="e-photo" type="file" accept="image/*"></div>
+      </div>
+      <button class="btn" type="submit">Save Changes</button>
+      <button class="btn danger" type="button" id="e-delete" style="margin-left:10px">Delete Display</button>
+      <span class="msg" id="m-edit"></span>
+    </form>
+  </section>
+  <section id="view-rev" class="hide">
+    <div class="chips" id="rev-chips">
+      <span class="chip on" data-r="30d">Last 30 Days</span>
+      <span class="chip" data-r="today">Today</span>
+      <span class="chip" data-r="yday">Yesterday</span>
+      <span class="chip" data-r="7d">Last 7 Days</span>
+      <span class="chip" data-r="month">This Month</span>
+      <span class="chip" data-r="quarter">Quarter</span>
+      <span class="chip" data-r="year">Year</span>
+      <input type="date" id="r-from"> <input type="date" id="r-to">
+      <span class="chip" data-r="custom">Apply</span>
+      <span style="flex:1"></span>
+      <a class="btn" id="ex-csv" href="#" style="padding:8px 16px;font-size:12px">CSV</a>
+      <a class="btn" id="ex-xlsx" href="#" style="padding:8px 16px;font-size:12px">Excel</a>
+      <button class="btn" id="ex-print" type="button" style="padding:8px 16px;font-size:12px">Print / PDF</button>
+    </div>
+    <div class="stats" id="rev-stats"></div>
+    <div class="frm"><h3>Revenue Trend — Last 12 Months</h3><div class="trend" id="rev-trend"></div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px">
+      <div class="frm"><h3>Revenue by Screen</h3><div id="rev-screens"></div></div>
+      <div class="frm"><h3>Sales Leaderboard</h3>
+        <div class="tbl"><table><thead><tr><th>#</th><th>Salesperson</th><th>Revenue</th><th>Bookings</th><th>Clients</th></tr></thead>
+        <tbody id="rev-sales"></tbody></table></div></div>
+    </div>
+    <div class="frm no-print"><h3>User Management</h3>
+      <div class="tbl" style="margin-bottom:16px"><table><thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Added</th><th></th></tr></thead>
+      <tbody id="users-body"></tbody></table></div>
+      <div class="row">
+        <div><label>Username</label><input id="nu-user" placeholder="satish"></div>
+        <div><label>Full Name</label><input id="nu-name" placeholder="Satish"></div>
+        <div><label>Password</label><input id="nu-pass" type="password" placeholder="min 6 chars"></div>
+        <div><label>Role</label><select id="nu-role"><option value="sales">Sales</option><option value="admin">Admin</option></select></div>
+      </div>
+      <button class="btn" type="button" id="nu-add">Add User</button><span class="msg" id="m-user"></span>
+    </div>
+  </section>
+</main>
+
+<div id="login" class="hide">
+  <form class="card" id="f-login">
+    <h3>AJANTA <b>ADVERTISERS</b></h3>
+    <p>Sign in to MediaTrack <span style="opacity:.55">· v3.4</span></p>
+    <div class="row" style="display:grid;gap:12px;margin-bottom:14px">
+      <div><label>Username</label><input id="l-user" autocomplete="username" required></div>
+      <div><label>Password</label><input id="l-pass" type="password" autocomplete="current-password" required></div>
+    </div>
+    <button class="btn" type="submit" style="width:100%">Sign In</button>
+    <p class="msg err" id="m-login" style="margin:10px 0 0;display:block"></p>
+  </form>
+</div>
+
+<div id="toasts" role="status" aria-live="polite"></div>
+<footer><span>AJANTA ADVERTISERS — MediaTrack v3.4</span><span>internal media operations system</span></footer>
+
+<div class="overlay hide" id="overlay"><div class="modal" id="modal"></div></div>
+
+<script>
+const API = location.protocol === 'file:' ? 'http://localhost:8000' : '';
+window.addEventListener('error', e=>{ try{ toast('Page error: '+e.message, false);
+  const m=document.getElementById('m-login'); if(m) m.textContent='Page error: '+e.message; }catch{} });
+window.addEventListener('unhandledrejection', e=>{ try{ toast('Error: '+(e.reason?.message||e.reason), false); }catch{} });
+let TOKEN = null; try{ TOKEN = localStorage.getItem('mt_token'); }catch{}
+const authH = () => TOKEN ? {'Authorization':'Bearer '+TOKEN} : {};
+const tokQ = () => TOKEN ? '&token='+encodeURIComponent(TOKEN) : '';
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = d => new Date(d+'T00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'});
+const todayISO = new Date().toISOString().slice(0,10);
+let apiMode = false, ME = null, clientsCache = [], screensCache = [], bookingsCache = [], firstPaint = true;
+$('#today').textContent = new Date().toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+
+function toast(msg, ok=true){
+  const t = document.createElement('div');
+  t.className = 'toast' + (ok?'':' err');
+  t.textContent = msg;
+  document.getElementById('toasts').appendChild(t);
+  setTimeout(()=>{ t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(()=>t.remove(),300); }, 3200);
+}
+
+/* animated counter */
+function countTo(el, target){
+  const from = +el.dataset.v || 0;
+  el.dataset.v = target;
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches || from === target){ el.textContent = target; return; }
+  const t0 = performance.now(), dur = 900;
+  (function tick(t){
+    const p = Math.min(1,(t-t0)/dur), e = 1-Math.pow(1-p,3);
+    el.textContent = Math.round(from + (target-from)*e);
+    if(p<1) requestAnimationFrame(tick);
+  })(t0);
+}
+
+/* ---------- demo fallback (dates relative to today) ---------- */
+function demoData(){
+  const d = o => { const t=new Date(); t.setDate(t.getDate()+o); return t.toISOString().slice(0,10); };
+  const S = (id,name,location,w,h,rw,rh,loop,rate)=>({id,name,location,city:'Bhubaneswar',width_ft:w,height_ft:h,res_w:rw,res_h:rh,loop_slots:loop,slot_seconds:15,spots_per_day:360,rate_month:rate,status:'active',photo:null,live:[],calendar:[]});
+  const screens=[S(1,'Sishubhawan LED','Sishubhawan Square',12.5,12.5,960,960,8,150000),
+    S(2,'Housing Board LED','Housing Board, Opp. Akash Institute',12.5,12.5,960,960,8,150000),
+    S(3,'Janpath Lyfe LED','Janpath, Near Hotel Lyfe',20,20,1280,1280,8,200000),
+    S(4,'Kalpana Square LED','Kalpana Sq, Facing Utkal Galleria',19,21,1216,1344,8,170000),
+    S(5,'Sriya Square LED','Near Sriya Sq, Janpath Traffic',22,9,1760,720,8,180000),
+    S(6,'Rajmahal Panorama','Rajmahal Square',45,6.5,7740,1120,6,260000),
+    S(7,'Rupali Square LED','Rupali Square',20,10,1600,800,8,160000),
+    S(8,'Vani Vihar LED','Vani Vihar',25,25,1600,1600,8,220000),
+    S(9,'Jaydev Vihar LED','Jaydev Vihar Junction',25,10.5,1920,810,8,300000)];
+  const B=(sc,co,camp,cr,pos,s,e)=>({screen:sc,company:co,campaign:camp,creative:cr,position_no:pos,start_date:s,end_date:e});
+  const bookings=[
+    B(9,'Max Kalinga Hospital','Max Kalinga Launch','Cardiac 15s',1,d(-20),d(40)),
+    B(9,'Great Eastern Electronics','GE Monsoon Sale','AC EMI 15s',2,d(-10),d(5)),
+    B(1,'Union Bank of India','UB Home Loan Utsav','8.35% 15s',1,d(-15),d(15)),
+    B(3,'Saluja Gold','Akshaya Push','Gold Rate 15s',2,d(-8),d(22)),
+    B(6,'VinFast Bhubaneswar','VF6 Tease','Panorama 15s',1,d(3),d(63)),
+    B(6,'Evos Buildcon','Evos Alchemy','Tallest Tower 15s',2,d(-25),d(35)),
+    B(4,'Ori Plast','Monsoon Push','Leak-Proof 15s',1,d(-2),d(28)),
+    B(2,'Max Kalinga Hospital','Arrivals','Emergency 15s',1,d(-18),d(42))];
+  const daysLeft = e => Math.round((new Date(e)-new Date(todayISO))/864e5);
+  const cover=(b,iso)=>b.start_date<=iso&&iso<=b.end_date;
+  screens.forEach(s=>{
+    const mine=bookings.filter(b=>b.screen===s.id);
+    s.live=mine.filter(b=>cover(b,todayISO)).map(b=>({...b,days_left:daysLeft(b.end_date)})).sort((a,b)=>a.position_no-b.position_no);
+    s.live_count=s.live.length; s.open_now=s.loop_slots-s.live_count;
+    s.calendar=[...Array(30)].map((_,i)=>{const t=new Date();t.setDate(t.getDate()+i);const iso=t.toISOString().slice(0,10);
+      return{date:iso,booked:mine.filter(b=>cover(b,iso)).length};});
+    const firstOpen=s.calendar.find(c=>c.booked<s.loop_slots);
+    s.next_opening=firstOpen?firstOpen.date:null;
+  });
+  const live=bookings.filter(b=>cover(b,todayISO)).map(b=>({screen:screens.find(s=>s.id===b.screen).name,
+    company:b.company,campaign:b.campaign,position_no:b.position_no,end_date:b.end_date,days_left:daysLeft(b.end_date)}))
+    .sort((a,b)=>a.days_left-b.days_left);
+  return {screens,live};
+}
+
+/* occupancy sparkline from real calendar data */
+function sparkline(screens){
+  if(!screens.length || !screens[0].calendar?.length){ $('#spark').innerHTML=''; return; }
+  const days = screens[0].calendar.length;
+  const cap = screens.reduce((n,s)=>n+s.loop_slots,0) || 1;
+  const pts = [...Array(days)].map((_,i)=> screens.reduce((n,s)=>n+(s.calendar[i]?.booked||0),0)/cap);
+  const W=170,H=38,P=3;
+  const xy = pts.map((v,i)=>[P+i*(W-2*P)/(days-1), H-P-v*(H-2*P)]);
+  const line = xy.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+  const area = line + ` L${(W-P)},${H-P} L${P},${H-P} Z`;
+  $('#spark').innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <path d="${area}" fill="url(#sparkFill)"/>
+    <path d="${line}" fill="none" stroke="#ff3b4e" stroke-width="1.6" stroke-linecap="round"/>
+  </svg>`;
+}
+
+/* ---------- render ---------- */
+function render(screens,live){
+  screensCache = screens;
+  const cap = screens.reduce((n,s)=>n+s.loop_slots,0) || 1;
+  const openSlots = screens.reduce((n,s)=>n+s.open_now,0);
+  const expiring = live.filter(l=>l.days_left<=7).length;
+  const kpi = [
+    ['Screens on Network', screens.length, '', 1],
+    ['Live Campaigns', live.length, 'red', live.length/cap],
+    ['Open Slots Now', openSlots, '', openSlots/cap],
+    ['Expiring in 7 Days', expiring, expiring?'red':'', live.length?expiring/live.length:0],
+  ];
+  $('#stats').innerHTML = kpi.map(([l,n,c,r],i)=>{
+    const off = 138.2*(1-Math.max(0,Math.min(1,r)));
+    return `<div class="stat" style="--i:${i}">
+      <div class="ring"><svg width="58" height="58"><circle class="bgc" cx="29" cy="29" r="22" stroke-width="5"/>
+        <circle class="fgc" cx="29" cy="29" r="22" stroke-width="5" style="stroke-dashoffset:${off}"/></svg></div>
+      <div><div class="n ${c}" data-v="0">0</div><div class="l">${l}</div></div>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('#stats .n').forEach((el,i)=>countTo(el, kpi[i][1]));
+
+  $('#screen-count').textContent = `${screens.length} digital boards`;
+  sparkline(screens);
+
+  $('#screens').innerHTML = screens.map((s,i)=>`
+    <article class="board" data-sid="${s.id}" style="--i:${i}" title="Click for full details">
+      <span class="badge-live ${s.live_count?'':'empty'}"><span class="dot"></span>${s.live_count?s.live_count+' ON AIR':'AVAILABLE'}</span>
+      ${s.photo?`<div class="bphoto"><img src="${API}/photos/${s.photo}" alt="${esc(s.name)}" loading="lazy" onerror="this.parentElement.style.display='none'"></div>`:''}
+      <div class="bbody">
+      <h3>${esc(s.name)}</h3><div class="loc">${esc(s.location)}</div>
+      <div class="spec"><b>${s.width_ft}×${s.height_ft} ft</b> · ${s.res_w}×${s.res_h}px · ${s.slot_seconds}s × ${s.spots_per_day}/day</div>
+      <div class="loop" aria-label="${s.live_count} of ${s.loop_slots} loop slots booked">
+        ${[...Array(s.loop_slots)].map((_,j)=>`<span class="seg ${j<s.live_count?'on':''}"></span>`).join('')}
+      </div>
+      ${s.live.map(a=>`<div class="adv"><span class="co">${esc(a.company)}</span>
+        <span class="dl ${a.days_left<=7?'soon':''}">${a.days_left<=0?'ends today':a.days_left+'d left'}</span></div>`).join('')
+        || '<div class="adv"><span class="co" style="color:var(--muted)">Loop empty — fully available</span></div>'}
+      <div class="foot">
+        <span class="${s.open_now?'open-now':'fullx'}">${s.open_now?s.open_now+' slots open':'loop full'}</span>
+        <span class="next">${s.next_opening ? 'next opening '+fmt(s.next_opening) : 'no opening in 30d'}</span>
+      </div></div>
+    </article>`).join('');
+  attachTilt();
+
+  $('#live-head').innerHTML = '<th>Screen</th><th>Advertiser</th><th>Campaign</th><th>Pos</th><th>Ends</th><th>Days Left</th>'
+    + (apiMode ? '<th></th>' : '');
+  $('#live-body').innerHTML = live.map(l=>`
+    <tr><td>${esc(l.screen)}</td><td>${esc(l.company)}</td><td style="color:var(--muted)">${esc(l.campaign)}</td>
+    <td class="mono">P${l.position_no}</td><td class="mono">${fmt(l.end_date)}</td>
+    <td><span class="pill ${l.days_left<=7?'soon':''}">${l.days_left<=0?'today':l.days_left+' days'}</span></td>
+    ${apiMode?`<td><button class="stop" data-slot="${l.slot_id}">End now</button></td>`:''}</tr>`).join('')
+    || `<tr><td colspan="${apiMode?7:6}" class="loadingtxt">Nothing on air right now.</td></tr>`;
+
+  $('#cal-rows').innerHTML = screens.map(s=>`
+    <div class="cal-row">
+      <div class="nm">${esc(s.name)}<small>${s.loop_slots}-slot loop · ${esc(s.location)}</small></div>
+      <div class="strip">${s.calendar.map(c=>{
+        const r=c.booked/s.loop_slots;
+        const bg = r===0?'rgba(255,255,255,.06)': r<1?`rgba(255,59,78,${(.22+r*.55).toFixed(2)})`:'#ff3b4e';
+        return `<span class="day" style="background:${bg}" data-tip="${fmt(c.date)} · ${c.booked}/${s.loop_slots} booked"></span>`;
+      }).join('')}</div>
+    </div>`).join('');
+
+  const P = {live:'live', upcoming:'up', ended:''};
+  $('#bk-body').innerHTML = bookingsCache.map(b=>`
+    <tr><td>${esc(b.screen)}</td><td>${esc(b.company)}</td><td style="color:var(--muted)">${esc(b.campaign)}</td>
+    <td class="mono">P${b.position_no}</td><td class="mono">${fmt(b.start_date)}</td><td class="mono">${fmt(b.end_date)}</td>
+    <td class="mono">₹${(b.rate_month||0).toLocaleString('en-IN')}</td>
+    <td><span class="pill ${P[b.status]}">${b.status}</span></td>
+    <td>${esc(b.booked_by||'—')}</td>
+    <td><button class="stop del-book" data-slot="${b.slot_id}">Delete</button></td></tr>`).join('')
+    || `<tr><td colspan="10" class="loadingtxt">${apiMode?'No bookings yet.':'Backend required.'}</td></tr>`;
+
+  $('#b-screen').innerHTML = screens.map(s=>`<option value="${s.id}">${esc(s.name)} — ${s.open_now} open</option>`).join('');
+  $('#client-list').innerHTML = clientsCache.map(c=>`<option value="${esc(c.company)}"></option>`).join('');
+  const sel = $('#e-screen'); const prev = sel.value;
+  sel.innerHTML = screens.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  if(prev && screens.some(s=>s.id==prev)) sel.value = prev;
+  prefillEdit();
+}
+
+/* ---------- 3D tilt (pointer:fine only, transform-only = GPU) ---------- */
+function attachTilt(){
+  if(!matchMedia('(pointer:fine)').matches || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.querySelectorAll('.board').forEach(card=>{
+    let raf = 0;
+    card.addEventListener('pointermove', e=>{
+      const r = card.getBoundingClientRect();
+      const x = (e.clientX-r.left)/r.width - .5, y = (e.clientY-r.top)/r.height - .5;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(()=>{
+        card.style.transform = `rotateX(${(-y*5).toFixed(2)}deg) rotateY(${(x*6).toFixed(2)}deg) translateY(-4px)`;
+      });
+    });
+    card.addEventListener('pointerleave', ()=>{
+      cancelAnimationFrame(raf);
+      card.style.transition = 'transform .4s cubic-bezier(.2,.7,.2,1)';
+      card.style.transform = '';
+      setTimeout(()=>card.style.transition='',400);
+    });
+  });
+}
+
+/* ---------- data ---------- */
+async function loadData(){
+  if(firstPaint){
+    $('#screens').innerHTML = [...Array(6)].map(()=>'<div class="skel"></div>').join('');
+  }
+  try{
+    const opt = {credentials:'same-origin', headers:authH()};
+    const [sr,lr,cr,br] = await Promise.all([
+      fetch(API+'/api/screens',opt), fetch(API+'/api/campaigns/live',opt),
+      fetch(API+'/api/clients',opt), fetch(API+'/api/bookings',opt)]);
+    if(!sr.ok||!lr.ok||!cr.ok||!br.ok) throw 0;
+    apiMode = true;
+    clientsCache = await cr.json();
+    bookingsCache = await br.json();
+    render(await sr.json(), await lr.json());
+    $('#conn').classList.remove('demo'); $('#conn-t').textContent = 'API live';
+    $('#manage-banner').classList.add('hide');
+  }catch{
+    apiMode = false;
+    const {screens,live} = demoData();
+    clientsCache = []; bookingsCache = [];
+    render(screens,live);
+    $('#conn').classList.add('demo'); $('#conn-t').textContent = 'demo data';
+    $('#manage-banner').classList.remove('hide');
+  }finally{
+    if(firstPaint){ firstPaint = false; setTimeout(()=>$('#splash').classList.add('done'), 350); }
+  }
+}
+
+/* ---------- actions ---------- */
+async function post(url, body, method='POST'){
+  const r = await fetch(API+url,{method,credentials:'same-origin',headers:{'Content-Type':'application/json',...authH()},body:body?JSON.stringify(body):undefined});
+  const data = await r.json().catch(()=>({}));
+  if(r.status===401 && location.protocol!=='file:'){ showLogin(); }
+  if(!r.ok) throw new Error(data.detail || 'Request failed');
+  return data;
+}
+function showLogin(){ $('#login').classList.remove('hide'); $('#splash').classList.add('done'); }
+function applyRole(){
+  if(!ME) return;
+  $('#userchip').classList.remove('hide');
+  $('#u-name').textContent = ME.name; $('#u-role').textContent = ME.role;
+  $('#nav-rev').classList.toggle('hide', ME.role!=='admin');
+}
+$('#f-login').addEventListener('submit', async e=>{
+  e.preventDefault();
+  $('#m-login').textContent='';
+  try{
+    const d = await post('/api/login', {username:$('#l-user').value.trim(), password:$('#l-pass').value});
+    TOKEN = d.token;
+    try{ localStorage.setItem('mt_token', d.token); }catch{}
+    ME = {name:d.name, role:d.role, username:d.username};
+    $('#login').classList.add('hide');
+    applyRole(); toast('Welcome, '+ME.name);
+    firstPaint = true; loadData();
+  }catch(err){ $('#m-login').textContent = err.message; }
+});
+$('#btn-logout').addEventListener('click', async ()=>{
+  try{ await post('/api/logout'); }catch{}
+  try{ localStorage.removeItem('mt_token'); }catch{}
+  location.reload();
+});
+function flash(id, text, ok){
+  const el = $(id); el.textContent = text; el.className = 'msg ' + (ok?'ok':'err');
+  if(ok) setTimeout(()=>{el.textContent='';}, 4000);
+}
+
+$('#f-book').addEventListener('submit', async e=>{
+  e.preventDefault();
+  if(!apiMode) return flash('#m-book','backend not running',false);
+  try{
+    const d = await post('/api/campaigns',{
+      screen_id:+$('#b-screen').value, client_name:$('#b-client').value.trim(),
+      campaign_name:$('#b-name').value, creative:$('#b-creative').value,
+      start_date:$('#b-start').value, end_date:$('#b-end').value,
+      rate_month:+($('#b-rate').value||0)});
+    flash('#m-book',`booked — loop position P${d.position_no}`,true); toast(`Booked on P${d.position_no}`);
+    e.target.reset(); loadData();
+  }catch(err){ flash('#m-book',err.message,false); }
+});
+
+$('#f-screen').addEventListener('submit', async e=>{
+  e.preventDefault();
+  if(!apiMode) return flash('#m-screen','backend not running',false);
+  try{
+    const created = await post('/api/screens',{
+      name:$('#s-name').value, location:$('#s-loc').value, city:$('#s-city').value,
+      width_ft:+$('#s-w').value, height_ft:+$('#s-h').value,
+      res_w:+($('#s-rw').value||0), res_h:+($('#s-rh').value||0),
+      loop_slots:+$('#s-loop').value, slot_seconds:+$('#s-sec').value,
+      rate_month:+($('#s-rate').value||0)});
+    const pf = $('#s-photo').files[0];
+    if(pf){
+      const fd = new FormData(); fd.append('file', pf);
+      const pr = await fetch(API+`/api/screens/${created.screen_id}/photo`,{method:'POST',body:fd});
+      if(!pr.ok) flash('#m-screen','display added, photo failed',false);
+    }
+    flash('#m-screen','display added to network',true); toast('Display added');
+    e.target.reset(); $('#s-city').value='Bhubaneswar'; $('#s-loop').value=8; $('#s-sec').value=15; loadData();
+  }catch(err){ flash('#m-screen',err.message,false); }
+});
+
+function prefillEdit(){
+  const s = screensCache.find(x=>x.id==+$('#e-screen').value); if(!s) return;
+  $('#e-name').value=s.name; $('#e-loc').value=s.location; $('#e-city').value=s.city;
+  $('#e-w').value=s.width_ft; $('#e-h').value=s.height_ft;
+  $('#e-rw').value=s.res_w||''; $('#e-rh').value=s.res_h||'';
+  $('#e-loop').value=s.loop_slots; $('#e-sec').value=s.slot_seconds; $('#e-rate').value=s.rate_month||'';
+}
+$('#e-screen').addEventListener('change', prefillEdit);
+
+$('#f-edit').addEventListener('submit', async e=>{
+  e.preventDefault();
+  if(!apiMode) return flash('#m-edit','backend not running',false);
+  const id = +$('#e-screen').value;
+  try{
+    await post(`/api/screens/${id}`,{
+      name:$('#e-name').value, location:$('#e-loc').value, city:$('#e-city').value,
+      width_ft:+$('#e-w').value, height_ft:+$('#e-h').value,
+      res_w:+($('#e-rw').value||0), res_h:+($('#e-rh').value||0),
+      loop_slots:+$('#e-loop').value, slot_seconds:+$('#e-sec').value,
+      rate_month:+($('#e-rate').value||0)}, 'PUT');
+    const pf = $('#e-photo').files[0];
+    if(pf){ const fd=new FormData(); fd.append('file',pf);
+      await fetch(API+`/api/screens/${id}/photo`,{method:'POST',body:fd}); $('#e-photo').value=''; }
+    flash('#m-edit','display updated',true); toast('Display updated'); loadData();
+  }catch(err){ flash('#m-edit',err.message,false); }
+});
+
+$('#e-delete').addEventListener('click', async ()=>{
+  if(!apiMode) return flash('#m-edit','backend not running',false);
+  const id = +$('#e-screen').value;
+  const s = screensCache.find(x=>x.id==id);
+  if(!confirm(`Delete "${s?.name}" and ALL its bookings permanently?`)) return;
+  try{ await post(`/api/screens/${id}`, null, 'DELETE'); flash('#m-edit','display deleted',true); toast('Display deleted'); loadData(); }
+  catch(err){ flash('#m-edit',err.message,false); }
+});
+
+document.addEventListener('click', async e=>{
+  const card = e.target.closest('.board');
+  if(card){ openScreen(+card.dataset.sid); return; }
+  const del = e.target.closest('.del-book');
+  if(del){
+    if(!confirm('Delete this booking permanently? This cannot be undone.')) return;
+    try{ await post(`/api/slots/${del.dataset.slot}`, null, 'DELETE'); toast('Booking deleted'); loadData(); }
+    catch(err){ toast(err.message, false); }
+    return;
+  }
+  const btn = e.target.closest('.stop');
+  if(!btn) return;
+  if(!confirm('Take this ad off air from today?')) return;
+  try{ await post(`/api/slots/${btn.dataset.slot}/stop`, null, 'PATCH'); toast('Ad taken off air'); loadData(); }
+  catch(err){ toast(err.message, false); }
+});
+
+/* ---------- modal ---------- */
+function openScreen(id){
+  const s = screensCache.find(x=>x.id===id); if(!s) return;
+  const m = $('#modal');
+  m.innerHTML = `
+    ${s.photo?`<div class="mphoto"><img src="${API}/photos/${s.photo}" alt="${esc(s.name)}" onerror="this.parentElement.style.display='none'"></div>`:''}
+    <div class="body">
+      <button class="mclose" onclick="document.getElementById('overlay').classList.add('hide')">Close ✕</button>
+      <h3>${esc(s.name)}</h3>
+      <div class="mloc">${esc(s.location)}, ${esc(s.city)}</div>
+      <div class="mspec">${s.width_ft}×${s.height_ft} ft · ${s.res_w}×${s.res_h}px · ${s.slot_seconds}s slot × ${s.spots_per_day} spots/day · card rate ₹${(s.rate_month||0).toLocaleString('en-IN')}/mo</div>
+      <div class="mstats">
+        <div><div class="n" style="color:var(--red)">${s.live_count}</div><div class="l">Ads Running</div></div>
+        <div><div class="n" style="color:var(--live)">${s.open_now}</div><div class="l">Slots Open</div></div>
+        <div><div class="n">${new Set(s.live.map(a=>a.company)).size}</div><div class="l">Clients</div></div>
+      </div>
+      <div class="loop" style="margin-bottom:14px">${[...Array(s.loop_slots)].map((_,i)=>`<span class="seg ${i<s.live_count?'on':''}"></span>`).join('')}</div>
+      ${s.live.length ? `<div class="tbl"><table><thead><tr><th>Client</th><th>Campaign</th><th>Pos</th><th>Ends</th></tr></thead><tbody>
+        ${s.live.map(a=>`<tr><td>${esc(a.company)}</td><td style="color:var(--muted)">${esc(a.campaign)}</td><td class="mono">P${a.position_no}</td><td class="mono">${fmt(a.end_date)} <span class="pill ${a.days_left<=7?'soon':''}">${a.days_left<=0?'today':a.days_left+'d'}</span></td></tr>`).join('')}
+      </tbody></table></div>` : '<p class="loadingtxt">Loop empty — fully available right now.</p>'}
+      <p class="note">Next opening: ${s.next_opening?fmt(s.next_opening):'none in 30 days'}</p>
+      <button class="btn mbook" onclick="bookFrom(${s.id})">Book a slot on this screen →</button>
+    </div>`;
+  $('#overlay').classList.remove('hide');
+}
+window.bookFrom = id => {
+  $('#overlay').classList.add('hide');
+  document.querySelector('nav button[data-view=manage]').click();
+  $('#b-screen').value = id;
+  $('#b-name').focus();
+};
+$('#overlay').addEventListener('click', e=>{ if(e.target.id==='overlay') e.target.classList.add('hide'); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') $('#overlay').classList.add('hide'); });
+
+/* ---------- tabs + sliding indicator ---------- */
+let currentView = 'dash';
+function moveInd(btn){
+  const ind = $('#nav-ind'), nr = $('#nav').getBoundingClientRect(), br = btn.getBoundingClientRect();
+  ind.style.width = br.width+'px';
+  ind.style.transform = `translateX(${br.left-nr.left-5}px)`;
+}
+document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  currentView = b.dataset.view;
+  moveInd(b);
+  ['dash','cal','manage','rev'].forEach(v=>$(`#view-${v}`).classList.toggle('hide', b.dataset.view!==v));
+  if(b.dataset.view==='rev'){ loadRevenue(); loadUsers(); }
+}));
+window.addEventListener('resize', ()=>moveInd(document.querySelector('nav button.on')));
+requestAnimationFrame(()=>moveInd(document.querySelector('nav button.on')));
+
+/* Auto-refresh every 60s — never while typing in Manage, viewing a popup, or backgrounded */
+setInterval(()=>{
+  if(apiMode && currentView!=='manage' && !document.hidden
+     && $('#overlay').classList.contains('hide')) loadData();
+}, 60000);
+
+/* ---------- ripple on buttons ---------- */
+document.addEventListener('pointerdown', e=>{
+  const b = e.target.closest('.btn'); if(!b) return;
+  const r = b.getBoundingClientRect(), rip = document.createElement('span');
+  const d = Math.max(r.width, r.height);
+  rip.className = 'ripple';
+  rip.style.cssText = `width:${d}px;height:${d}px;left:${e.clientX-r.left-d/2}px;top:${e.clientY-r.top-d/2}px`;
+  b.appendChild(rip); setTimeout(()=>rip.remove(), 600);
+});
+
+/* backup */
+$('#btn-backup').addEventListener('click', e=>{
+  e.preventDefault();
+  if(!apiMode){ toast('Backend not running — open MediaTrack first.', false); return; }
+  window.location.href = API + '/api/backup?x=1' + tokQ();
+});
+
+/* ---------- revenue (admin) ---------- */
+let revRange = {r:'30d'};
+function rangeDates(r){
+  const t = new Date(); const iso = d=>d.toISOString().slice(0,10);
+  const t0 = new Date(t);
+  if(r==='today') return [iso(t), iso(t)];
+  if(r==='yday'){ t0.setDate(t.getDate()-1); return [iso(t0), iso(t0)]; }
+  if(r==='7d'){ t0.setDate(t.getDate()-6); return [iso(t0), iso(t)]; }
+  if(r==='30d'){ t0.setDate(t.getDate()-29); return [iso(t0), iso(t)]; }
+  if(r==='month') return [iso(new Date(t.getFullYear(),t.getMonth(),1)), iso(t)];
+  if(r==='quarter'){ const q=Math.floor(t.getMonth()/3)*3; return [iso(new Date(t.getFullYear(),q,1)), iso(t)]; }
+  if(r==='year') return [iso(new Date(t.getFullYear(),0,1)), iso(t)];
+  return [$('#r-from').value || iso(t), $('#r-to').value || iso(t)];
+}
+const inr = n => '₹' + (+n).toLocaleString('en-IN');
+async function loadRevenue(){
+  if(!ME || ME.role!=='admin') return;
+  const [a,b] = rangeDates(revRange.r);
+  $('#ex-csv').href = API+`/api/export/bookings.csv?start=${a}&end=${b}`+tokQ();
+  $('#ex-xlsx').href = API+`/api/export/revenue.xlsx?start=${a}&end=${b}`+tokQ();
+  let d;
+  try{ 
+    const r = await fetch(API+`/api/revenue?start=${a}&end=${b}`,{credentials:'same-origin',headers:authH()});
+    if(!r.ok) throw new Error((await r.json()).detail||'failed');
+    d = await r.json();
+  }catch(err){ toast(err.message,false); return; }
+  const s = d.summary;
+  const cards = [
+    ['Revenue (selected range)', inr(s.filtered_revenue), 'red'],
+    ["Today's Revenue", inr(s.today), ''],
+    ['This Month', inr(s.month), ''],
+    ['This Year', inr(s.year), ''],
+    ['Occupancy % (range)', s.occupancy_pct+'%', ''],
+    ['Bookings in Range', s.bookings_in_range, ''],
+    ['Slots Booked Now', s.slots_booked_now, ''],
+    ['Slots Open Now', s.slots_open_now, ''],
+  ];
+  $('#rev-stats').innerHTML = cards.map(([l,v,c],i)=>`
+    <div class="stat" style="--i:${i}"><div><div class="n ${c}">${v}</div><div class="l">${l}</div></div></div>`).join('');
+  const mx = Math.max(...d.monthly.map(m=>m.revenue), 1);
+  $('#rev-trend').innerHTML = d.monthly.map(m=>`
+    <div class="col" title="${m.month}: ${inr(m.revenue)}">
+      <i style="height:${Math.max(3, 100*m.revenue/mx)}%"></i><small>${m.month.split(' ')[0]}</small>
+    </div>`).join('');
+  const smx = Math.max(...d.by_screen.map(x=>x.revenue), 1);
+  $('#rev-screens').innerHTML = d.by_screen.map(x=>`
+    <div class="barrow"><span>${esc(x.screen)}</span>
+      <span class="bar"><i style="width:${Math.max(2,100*x.revenue/smx)}%"></i></span>
+      <span class="v">${inr(x.revenue)}</span></div>`).join('') || '<p class="loadingtxt">No revenue in this range.</p>';
+  $('#rev-sales').innerHTML = d.by_sales.map((x,i)=>`
+    <tr><td class="mono">${i+1}</td><td>${esc(x.name)}</td><td class="mono">${inr(x.revenue)}</td>
+    <td class="mono">${x.bookings}</td><td class="mono">${x.clients_added}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="loadingtxt">No sales data yet.</td></tr>';
+}
+$('#rev-chips').addEventListener('click', e=>{
+  const c = e.target.closest('.chip'); if(!c) return;
+  document.querySelectorAll('#rev-chips .chip').forEach(x=>x.classList.remove('on'));
+  c.classList.add('on');
+  revRange.r = c.dataset.r; loadRevenue();
+});
+$('#ex-print').addEventListener('click', ()=>window.print());
+
+async function loadUsers(){
+  if(!ME || ME.role!=='admin') return;
+  try{
+    const r = await fetch(API+'/api/users',{credentials:'same-origin',headers:authH()}); if(!r.ok) return;
+    const users = await r.json();
+    $('#users-body').innerHTML = users.map(u=>`
+      <tr><td class="mono">${esc(u.username)}</td><td>${esc(u.name)}</td>
+      <td><span class="pill ${u.role==='admin'?'up':'live'}">${u.role}</span></td>
+      <td class="mono">${u.created_at||'—'}</td>
+      <td><button class="stop del-user" data-uid="${u.id}">Delete</button></td></tr>`).join('');
+  }catch{}
+}
+$('#nu-add').addEventListener('click', async ()=>{
+  try{
+    await post('/api/users',{username:$('#nu-user').value.trim(), name:$('#nu-name').value.trim(),
+      password:$('#nu-pass').value, role:$('#nu-role').value});
+    flash('#m-user','user added',true); toast('User added');
+    $('#nu-user').value=$('#nu-name').value=$('#nu-pass').value='';
+    loadUsers();
+  }catch(err){ flash('#m-user',err.message,false); }
+});
+document.addEventListener('click', async e=>{
+  const del = e.target.closest('.del-user'); if(!del) return;
+  if(!confirm('Delete this user? They will no longer be able to log in.')) return;
+  try{ await post(`/api/users/${del.dataset.uid}`, null, 'DELETE'); toast('User deleted'); loadUsers(); }
+  catch(err){ toast(err.message,false); }
+});
+
+/* splash failsafe */
+setTimeout(()=>$('#splash').classList.add('done'), 2600);
+(async ()=>{
+  if(location.protocol==='file:'){ loadData(); return; }   // demo mode: no login
+  try{
+    const r = await fetch(API+'/api/me', {credentials:'same-origin', headers:authH()});
+    if(r.ok){ ME = await r.json(); applyRole(); loadData(); }
+    else showLogin();
+  }catch{ showLogin(); }
+})();
+</script>
+</body>
+</html>
