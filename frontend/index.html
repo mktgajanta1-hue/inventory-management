@@ -1028,14 +1028,35 @@ function openCrop(inputId){
   const url = URL.createObjectURL(f);
   const img = $('#crop-img');
   img.onload = ()=>{
-    const stage = $('#crop-stage'), r = img.getBoundingClientRect();
-    const ratio = 4/3;
-    let w = Math.min(r.width*.8, r.height*.8*ratio), hgt = w/ratio;
-    if(hgt > r.height*.9){ hgt = r.height*.9; w = hgt*ratio; }
-    cropCtx = {inputId, natW: img.naturalWidth, natH: img.naturalHeight, ratio,
-      box:{x:(r.width-w)/2, y:(r.height-hgt)/2, w, h:hgt}, disp:{w:r.width, h:r.height}};
-    drawBox();
-    $('#crop-ov').classList.remove('hide');
+    // Wait for layout so getBoundingClientRect is accurate
+    requestAnimationFrame(()=>{
+      const stage = $('#crop-stage');
+      const ir = img.getBoundingClientRect();
+      const sr = stage.getBoundingClientRect();
+      // object-fit:contain — find actual drawn image rect inside stage
+      const natR = img.naturalWidth / img.naturalHeight;
+      const dispR = ir.width / ir.height;
+      let drawnW, drawnH, offX, offY;
+      if(natR > dispR){
+        drawnW = ir.width; drawnH = ir.width / natR;
+        offX = 0; offY = (ir.height - drawnH) / 2;
+      } else {
+        drawnH = ir.height; drawnW = ir.height * natR;
+        offX = (ir.width - drawnW) / 2; offY = 0;
+      }
+      // Initial crop box = centre 80% of the drawn image
+      const ratio = 4/3;
+      let bw = drawnW * .85, bh = bw / ratio;
+      if(bh > drawnH * .85){ bh = drawnH * .85; bw = bh * ratio; }
+      const bx = offX + (drawnW - bw) / 2;
+      const by = offY + (drawnH - bh) / 2;
+      cropCtx = {inputId, natW: img.naturalWidth, natH: img.naturalHeight, ratio,
+        box:{x:bx, y:by, w:bw, h:bh},
+        disp:{w:ir.width, h:ir.height},
+        drawn:{x:offX, y:offY, w:drawnW, h:drawnH}};
+      drawBox();
+      $('#crop-ov').classList.remove('hide');
+    });
   };
   img.src = url;
 }
@@ -1048,9 +1069,11 @@ function drawBox(){
   const stage = $('#crop-stage'), box = $('#crop-box');
   let mode = null, sx=0, sy=0, start=null;
   function clamp(){
-    const b = cropCtx.box, d = cropCtx.disp;
-    b.w = Math.max(40, Math.min(b.w, d.w)); b.h = Math.max(40, Math.min(b.h, d.h));
-    b.x = Math.max(0, Math.min(b.x, d.w-b.w)); b.y = Math.max(0, Math.min(b.y, d.h-b.h));
+    const b = cropCtx.box, dr = cropCtx.drawn || {x:0, y:0, w:cropCtx.disp.w, h:cropCtx.disp.h};
+    b.w = Math.max(40, Math.min(b.w, dr.w));
+    b.h = Math.max(30, Math.min(b.h, dr.h));
+    b.x = Math.max(dr.x, Math.min(b.x, dr.x + dr.w - b.w));
+    b.y = Math.max(dr.y, Math.min(b.y, dr.y + dr.h - b.h));
   }
   stage.addEventListener('pointerdown', e=>{
     if(!cropCtx) return;
@@ -1079,11 +1102,9 @@ document.querySelectorAll('.ratio').forEach(r=>r.addEventListener('click', ()=>{
 $('#crop-cancel').addEventListener('click', ()=>{ $('#crop-ov').classList.add('hide'); cropCtx=null; });
 $('#crop-apply').addEventListener('click', ()=>{
   const img = $('#crop-img'), b = cropCtx.box;
-  const r = img.getBoundingClientRect();
-  // displayed image is object-fit:contain — find the drawn area inside the stage
-  const scale = Math.min(r.width/cropCtx.natW, r.height/cropCtx.natH);
-  const drawnW = cropCtx.natW*scale, drawnH = cropCtx.natH*scale;
-  const offX = (r.width-drawnW)/2, offY = (r.height-drawnH)/2;
+  const dr = cropCtx.drawn || {x:0,y:0,w:cropCtx.disp.w,h:cropCtx.disp.h};
+  const scale = dr.w / cropCtx.natW;
+  const offX = dr.x, offY = dr.y;
   const sx = Math.max(0,(b.x-offX)/scale), sy = Math.max(0,(b.y-offY)/scale);
   const sw = Math.min(cropCtx.natW-sx, b.w/scale), sh = Math.min(cropCtx.natH-sy, b.h/scale);
   const cv = document.createElement('canvas');
