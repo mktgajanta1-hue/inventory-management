@@ -324,23 +324,19 @@
     .stat .n,.modal h3{color:#111}
   }
   /* photo crop modal */
-  #crop-ov{position:fixed;inset:0;z-index:170;background:rgba(5,4,6,.85);backdrop-filter:blur(10px);
+  #crop-ov{position:fixed;inset:0;z-index:170;background:rgba(5,4,6,.88);backdrop-filter:blur(10px);
     display:flex;align-items:center;justify-content:center;padding:16px}
   #crop-ov.hide{display:none}
   .cropcard{background:linear-gradient(170deg,rgba(30,20,23,.95),rgba(14,10,12,.98));border:1px solid var(--line2);
-    border-radius:20px;padding:18px;max-width:720px;width:100%;box-shadow:0 40px 100px rgba(0,0,0,.8)}
+    border-radius:20px;padding:18px;max-width:760px;width:100%;box-shadow:0 40px 100px rgba(0,0,0,.8)}
   .cropcard h3{font-family:var(--f-brand);font-weight:400;font-size:14px;letter-spacing:.14em;
     text-transform:uppercase;color:var(--red);margin-bottom:12px}
-  .cropstage{position:relative;width:100%;max-height:56vh;overflow:hidden;border-radius:12px;
-    background:#000;user-select:none;touch-action:none}
-  .cropstage img{display:block;width:100%;max-height:56vh;object-fit:contain;pointer-events:none}
-  #crop-box{position:absolute;border:2px solid var(--red);box-shadow:0 0 0 9999px rgba(0,0,0,.55);
-    cursor:move;border-radius:4px}
-  #crop-box .hnd{position:absolute;right:-9px;bottom:-9px;width:18px;height:18px;border-radius:50%;
-    background:var(--red);border:2px solid #fff;cursor:nwse-resize}
+  .cropstage{position:relative;width:100%;height:58vh;border-radius:12px;background:#000;
+    user-select:none;touch-action:none;overflow:hidden}
+  #crop-canvas{display:block;width:100%;height:100%;cursor:crosshair}
   .cropbtns{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;align-items:center}
   .ratio{background:var(--glass);border:1px solid var(--line);color:var(--muted);font-size:12px;
-    padding:6px 13px;border-radius:999px;cursor:pointer}
+    padding:6px 13px;border-radius:999px;cursor:pointer;transition:all .15s}
   .ratio.on{color:var(--ivory);border-color:rgba(255,59,78,.55);background:rgba(255,59,78,.12)}
   /* permission toggle */
   .permtoggle{cursor:pointer;accent-color:var(--red);width:17px;height:17px}
@@ -578,8 +574,10 @@
 
 <div id="crop-ov" class="hide">
   <div class="cropcard">
-    <h3>Crop Photo</h3>
-    <div class="cropstage" id="crop-stage"><img id="crop-img" alt="crop preview"><div id="crop-box"><span class="hnd"></span></div></div>
+    <h3>Crop Photo — <span style="font-family:var(--f-ui);font-size:12px;color:var(--muted);font-weight:400;letter-spacing:0;text-transform:none">drag to move · corner dot to resize</span></h3>
+    <div class="cropstage" id="crop-stage">
+      <canvas id="crop-canvas"></canvas>
+    </div>
     <div class="cropbtns">
       <span class="ratio" data-r="free">Free</span>
       <span class="ratio on" data-r="1.333">4:3</span>
@@ -1017,111 +1015,153 @@ document.addEventListener('pointerdown', e=>{
   b.appendChild(rip); setTimeout(()=>rip.remove(), 600);
 });
 
-/* ---------- photo crop tool ---------- */
-const croppedBlobs = {};              // inputId -> Blob
-let cropCtx = null;                   // {inputId, img, natW, natH, box:{x,y,w,h}, ratio}
+/* ---------- photo crop tool (canvas-based, no layout dependency) ---------- */
+const croppedBlobs = {};
+let CC = null; // crop context
+const cv = $('#crop-canvas');
+const ctx2d = cv.getContext('2d');
+
 function openCrop(inputId){
-  const inp = $('#'+inputId);
-  const f = inp.files && inp.files[0];
-  if(!f) return;
+  const f = ($('#'+inputId).files||[])[0]; if(!f) return;
   delete croppedBlobs[inputId];
-  const url = URL.createObjectURL(f);
-  const img = $('#crop-img');
+  const img = new Image();
   img.onload = ()=>{
-    // Wait for layout so getBoundingClientRect is accurate
-    requestAnimationFrame(()=>{
+    // Show overlay first so stage has real dimensions
+    $('#crop-ov').classList.remove('hide');
+    setTimeout(()=>{
       const stage = $('#crop-stage');
-      const ir = img.getBoundingClientRect();
-      const sr = stage.getBoundingClientRect();
-      // object-fit:contain — find actual drawn image rect inside stage
-      const natR = img.naturalWidth / img.naturalHeight;
-      const dispR = ir.width / ir.height;
-      let drawnW, drawnH, offX, offY;
-      if(natR > dispR){
-        drawnW = ir.width; drawnH = ir.width / natR;
-        offX = 0; offY = (ir.height - drawnH) / 2;
-      } else {
-        drawnH = ir.height; drawnW = ir.height * natR;
-        offX = (ir.width - drawnW) / 2; offY = 0;
-      }
-      // Initial crop box = centre 80% of the drawn image
-      const ratio = 4/3;
-      let bw = drawnW * .85, bh = bw / ratio;
-      if(bh > drawnH * .85){ bh = drawnH * .85; bw = bh * ratio; }
-      const bx = offX + (drawnW - bw) / 2;
-      const by = offY + (drawnH - bh) / 2;
-      cropCtx = {inputId, natW: img.naturalWidth, natH: img.naturalHeight, ratio,
-        box:{x:bx, y:by, w:bw, h:bh},
-        disp:{w:ir.width, h:ir.height},
-        drawn:{x:offX, y:offY, w:drawnW, h:drawnH}};
-      drawBox();
-      $('#crop-ov').classList.remove('hide');
-    });
+      const SW = stage.clientWidth, SH = stage.clientHeight;
+      cv.width = SW; cv.height = SH;
+      // Fit image inside canvas (contain)
+      const scale = Math.min(SW/img.naturalWidth, SH/img.naturalHeight);
+      const iw = img.naturalWidth*scale, ih = img.naturalHeight*scale;
+      const ix = (SW-iw)/2, iy = (SH-ih)/2;
+      // Initial box: 80% of image area, 4:3
+      let bw = iw*.82, bh = bw*(3/4);
+      if(bh > ih*.82){ bh = ih*.82; bw = bh*(4/3); }
+      const box = {x:ix+(iw-bw)/2, y:iy+(ih-bh)/2, w:bw, h:bh};
+      CC = {inputId, img, iw, ih, ix, iy, scale, box, ratio:4/3};
+      renderCrop();
+    }, 60);
   };
-  img.src = url;
+  img.src = URL.createObjectURL(f);
 }
-function drawBox(){
-  const b = cropCtx.box, el = $('#crop-box');
-  el.style.left = b.x+'px'; el.style.top = b.y+'px';
-  el.style.width = b.w+'px'; el.style.height = b.h+'px';
+
+function renderCrop(){
+  if(!CC) return;
+  const {img,iw,ih,ix,iy,box:b} = CC;
+  const W = cv.width, H = cv.height;
+  ctx2d.clearRect(0,0,W,H);
+  // Draw image
+  ctx2d.drawImage(img, ix, iy, iw, ih);
+  // Dark overlay outside box
+  ctx2d.fillStyle = 'rgba(0,0,0,.62)';
+  ctx2d.fillRect(0,0,W,H);
+  // Cut out box (show image clearly inside)
+  ctx2d.save();
+  ctx2d.globalCompositeOperation='destination-out';
+  ctx2d.fillStyle='rgba(0,0,0,1)';
+  ctx2d.fillRect(b.x,b.y,b.w,b.h);
+  ctx2d.restore();
+  // Redraw image inside box
+  ctx2d.save();
+  ctx2d.beginPath();
+  ctx2d.rect(b.x,b.y,b.w,b.h);
+  ctx2d.clip();
+  ctx2d.drawImage(img, ix, iy, iw, ih);
+  ctx2d.restore();
+  // Box border
+  ctx2d.strokeStyle='#ff3b4e'; ctx2d.lineWidth=2;
+  ctx2d.strokeRect(b.x,b.y,b.w,b.h);
+  // Corner handles
+  const hs=10;
+  [[b.x,b.y],[b.x+b.w,b.y],[b.x,b.y+b.h],[b.x+b.w,b.y+b.h]].forEach(([hx,hy])=>{
+    ctx2d.fillStyle='#ff3b4e';
+    ctx2d.fillRect(hx-hs/2,hy-hs/2,hs,hs);
+  });
+  // Resize dot bottom-right
+  ctx2d.beginPath();
+  ctx2d.arc(b.x+b.w, b.y+b.h, 9, 0, Math.PI*2);
+  ctx2d.fillStyle='#ff3b4e';
+  ctx2d.fill();
+  ctx2d.strokeStyle='#fff'; ctx2d.lineWidth=2;
+  ctx2d.stroke();
 }
+
 (function(){
-  const stage = $('#crop-stage'), box = $('#crop-box');
-  let mode = null, sx=0, sy=0, start=null;
-  function clamp(){
-    const b = cropCtx.box, dr = cropCtx.drawn || {x:0, y:0, w:cropCtx.disp.w, h:cropCtx.disp.h};
-    b.w = Math.max(40, Math.min(b.w, dr.w));
-    b.h = Math.max(30, Math.min(b.h, dr.h));
-    b.x = Math.max(dr.x, Math.min(b.x, dr.x + dr.w - b.w));
-    b.y = Math.max(dr.y, Math.min(b.y, dr.y + dr.h - b.h));
+  let mode=null, sx=0, sy=0, sb=null;
+  function hitTest(x,y){
+    if(!CC) return null;
+    const b=CC.box, m=14;
+    if(Math.hypot(x-(b.x+b.w),y-(b.y+b.h))<m) return 'resize';
+    if(x>b.x-m&&x<b.x+b.w+m&&y>b.y-m&&y<b.y+b.h+m) return 'move';
+    return null;
   }
-  stage.addEventListener('pointerdown', e=>{
-    if(!cropCtx) return;
-    mode = e.target.classList.contains('hnd') ? 'resize' : 'move';
-    sx = e.clientX; sy = e.clientY; start = {...cropCtx.box};
-    stage.setPointerCapture(e.pointerId);
+  function clamp(){
+    const b=CC.box,{ix,iy,iw,ih}=CC;
+    b.w=Math.max(30,Math.min(b.w,iw)); b.h=Math.max(20,Math.min(b.h,ih));
+    b.x=Math.max(ix,Math.min(b.x,ix+iw-b.w)); b.y=Math.max(iy,Math.min(b.y,iy+ih-b.h));
+  }
+  cv.addEventListener('pointerdown',e=>{
+    if(!CC) return;
+    const r=cv.getBoundingClientRect();
+    sx=e.clientX-r.left; sy=e.clientY-r.top;
+    mode=hitTest(sx,sy); sb={...CC.box};
+    if(mode) cv.setPointerCapture(e.pointerId);
+    cv.style.cursor = mode==='resize'?'nwse-resize':mode==='move'?'move':'crosshair';
   });
-  stage.addEventListener('pointermove', e=>{
-    if(!mode || !cropCtx) return;
-    const dx = e.clientX-sx, dy = e.clientY-sy, b = cropCtx.box;
-    if(mode==='move'){ b.x = start.x+dx; b.y = start.y+dy; }
-    else{
-      b.w = start.w+dx;
-      b.h = cropCtx.ratio ? b.w/cropCtx.ratio : start.h+dy;
+  cv.addEventListener('pointermove',e=>{
+    if(!CC||!mode) return;
+    const r=cv.getBoundingClientRect();
+    const cx=e.clientX-r.left, cy=e.clientY-r.top;
+    const dx=cx-sx, dy=cy-sy;
+    const b=CC.box;
+    if(mode==='move'){ b.x=sb.x+dx; b.y=sb.y+dy; }
+    else if(mode==='resize'){
+      b.w=Math.max(30,sb.w+dx);
+      b.h=CC.ratio ? b.w/CC.ratio : Math.max(20,sb.h+dy);
     }
-    clamp(); drawBox();
+    clamp(); renderCrop();
   });
-  stage.addEventListener('pointerup', ()=>{ mode = null; });
+  cv.addEventListener('pointerup',()=>{ mode=null; cv.style.cursor='crosshair'; });
+  cv.addEventListener('pointermove',e=>{
+    if(mode||!CC) return;
+    const r=cv.getBoundingClientRect();
+    const hit=hitTest(e.clientX-r.left,e.clientY-r.top);
+    cv.style.cursor=hit==='resize'?'nwse-resize':hit==='move'?'move':'crosshair';
+  },{passive:true});
 })();
-document.querySelectorAll('.ratio').forEach(r=>r.addEventListener('click', ()=>{
+
+document.querySelectorAll('.ratio').forEach(r=>r.addEventListener('click',()=>{
   document.querySelectorAll('.ratio').forEach(x=>x.classList.remove('on'));
   r.classList.add('on');
-  cropCtx.ratio = r.dataset.r==='free' ? null : +r.dataset.r;
-  if(cropCtx.ratio){ cropCtx.box.h = cropCtx.box.w/cropCtx.ratio; drawBox(); }
+  if(!CC) return;
+  CC.ratio=r.dataset.r==='free'?null:+r.dataset.r;
+  if(CC.ratio){ CC.box.h=CC.box.w/CC.ratio; }
+  renderCrop();
 }));
-$('#crop-cancel').addEventListener('click', ()=>{ $('#crop-ov').classList.add('hide'); cropCtx=null; });
-$('#crop-apply').addEventListener('click', ()=>{
-  const img = $('#crop-img'), b = cropCtx.box;
-  const dr = cropCtx.drawn || {x:0,y:0,w:cropCtx.disp.w,h:cropCtx.disp.h};
-  const scale = dr.w / cropCtx.natW;
-  const offX = dr.x, offY = dr.y;
-  const sx = Math.max(0,(b.x-offX)/scale), sy = Math.max(0,(b.y-offY)/scale);
-  const sw = Math.min(cropCtx.natW-sx, b.w/scale), sh = Math.min(cropCtx.natH-sy, b.h/scale);
-  const cv = document.createElement('canvas');
-  cv.width = Math.round(sw); cv.height = Math.round(sh);
-  cv.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
-  cv.toBlob(blob=>{
-    croppedBlobs[cropCtx.inputId] = blob;
-    toast('Photo cropped — will upload the cropped version');
-    $('#crop-ov').classList.add('hide'); cropCtx=null;
-  }, 'image/jpeg', .92);
+
+$('#crop-cancel').addEventListener('click',()=>{ $('#crop-ov').classList.add('hide'); CC=null; });
+$('#crop-apply').addEventListener('click',()=>{
+  if(!CC) return;
+  const {img,box:b,ix,iy,scale,inputId}=CC;
+  // Map canvas coords → original image coords
+  const sx=(b.x-ix)/scale, sy=(b.y-iy)/scale;
+  const sw=b.w/scale, sh=b.h/scale;
+  const out=document.createElement('canvas');
+  out.width=Math.round(sw); out.height=Math.round(sh);
+  out.getContext('2d').drawImage(img,sx,sy,sw,sh,0,0,out.width,out.height);
+  out.toBlob(blob=>{
+    croppedBlobs[inputId]=blob;
+    toast('Photo cropped ✓');
+    $('#crop-ov').classList.add('hide'); CC=null;
+  },'image/jpeg',.92);
 });
-$('#s-photo').addEventListener('change', ()=>openCrop('s-photo'));
-$('#e-photo').addEventListener('change', ()=>openCrop('e-photo'));
+$('#s-photo').addEventListener('change',()=>openCrop('s-photo'));
+$('#e-photo').addEventListener('change',()=>openCrop('e-photo'));
 function photoFile(inputId){
-  const inp = $('#'+inputId);
-  if(croppedBlobs[inputId])
-    return new File([croppedBlobs[inputId]], 'photo.jpg', {type:'image/jpeg'});
+  const inp=$('#'+inputId);
+  if(croppedBlobs[inputId]) return new File([croppedBlobs[inputId]],'photo.jpg',{type:'image/jpeg'});
   return inp.files[0];
 }
 
