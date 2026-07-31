@@ -145,14 +145,18 @@ def current_user(request: Request):
             tok = auth[7:]
     if not tok:
         tok = request.query_params.get("token")
-    uid = read_token(tok) if tok else None
-    if not uid:
+    parsed = read_token(tok) if tok else None
+    if not parsed:
         return None
+    uid, tver = parsed
     with get_conn() as conn:
         r = conn.execute(
-            "SELECT id, username, name, role FROM users WHERE id = ?", (uid,)
+            "SELECT id, username, name, role, can_upload, token_version"
+            " FROM users WHERE id = ?", (uid,)
         ).fetchone()
-        return dict(r) if r else None
+        if not r or r["token_version"] != tver:
+            return None   # token from before a logout-all — invalid everywhere
+        return dict(r)
 
 
 def require_user(request: Request) -> dict:
@@ -166,6 +170,27 @@ def require_admin(user: dict = Depends(require_user)) -> dict:
     if user["role"] != "admin":
         raise HTTPException(403, "Access denied — admin only")
     return user
+
+
+def require_upload(user: dict = Depends(require_user)) -> dict:
+    """Admins always can; sales users need the can_upload permission."""
+    if user["role"] != "admin" and not user.get("can_upload"):
+        raise HTTPException(
+            403, "You don't have media-upload permission — ask your admin to enable it"
+        )
+    return user
+
+
+def log_activity(user_name: str, action: str, detail: str = "") -> None:
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO activity_log (user_name, action, detail) VALUES (?,?,?)",
+                (user_name, action, detail[:300]),
+            )
+            conn.commit()
+    except Exception:                                    # noqa: BLE001
+        log.exception("activity log write failed")       # never break the request
 
 
 class LoginIn(BaseModel):
@@ -183,13 +208,15 @@ def login(body: LoginIn, response: Response):
     if not r or not verify_pw(body.password, r["salt"], r["pw_hash"]):
         log.warning("Failed login for '%s'", body.username)
         raise HTTPException(401, "Wrong username or password")
-    token = make_token(r["id"])
+    token = make_token(r["id"], r["token_version"])
     response.set_cookie(
         "mt_session", token, httponly=True, samesite="lax",
         secure=COOKIE_SECURE, max_age=30 * 86400,
     )
     log.info("Login: %s (%s)", r["name"], r["role"])
+    log_activity(r["name"], "login", "")
     return {"name": r["name"], "role": r["role"], "username": r["username"],
+            "can_upload": bool(r["can_upload"]) or r["role"] == "admin",
             "token": token}
 
 
@@ -201,7 +228,49 @@ def logout(response: Response):
 
 @app.get("/api/me")
 def me(user: dict = Depends(require_user)):
-    return {"name": user["name"], "role": user["role"], "username": user["username"]}
+    return {"name": user["name"], "role": user["role"], "username": user["username"],
+            "can_upload": bool(user.get("can_upload")) or user["role"] == "admin"}
+
+
+class PasswordChange(BaseModel):
+    old_password: str = Field(min_length=1, max_length=120)
+    new_password: str = Field(min_length=6, max_length=120)
+
+
+@app.post("/api/me/password")
+def change_password(body: PasswordChange, response: Response,
+                    user: dict = Depends(require_user)):
+    """Change own password. Also invalidates every other device's session."""
+    with get_conn() as conn:
+        r = conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
+        if not verify_pw(body.old_password, r["salt"], r["pw_hash"]):
+            raise HTTPException(401, "Current password is wrong")
+        salt, ph = hash_pw(body.new_password)
+        new_ver = r["token_version"] + 1
+        conn.execute(
+            "UPDATE users SET salt = ?, pw_hash = ?, token_version = ? WHERE id = ?",
+            (salt, ph, new_ver, user["id"]),
+        )
+        conn.commit()
+    token = make_token(user["id"], new_ver)   # fresh token so THIS device stays in
+    response.set_cookie("mt_session", token, httponly=True, samesite="lax",
+                        secure=COOKIE_SECURE, max_age=30 * 86400)
+    log_activity(user["name"], "password_changed", "")
+    return {"ok": True, "token": token}
+
+
+@app.post("/api/logout-all")
+def logout_all(response: Response, user: dict = Depends(require_user)):
+    """Sign out from every device (invalidates all tokens, everywhere)."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE users SET token_version = token_version + 1 WHERE id = ?",
+            (user["id"],),
+        )
+        conn.commit()
+    response.delete_cookie("mt_session")
+    log_activity(user["name"], "logout_all_devices", "")
+    return {"ok": True}
 
 
 # ---- user management (admin) ----
@@ -217,7 +286,7 @@ class UserIn(BaseModel):
 def list_users(_: dict = Depends(require_admin)):
     with get_conn() as conn:
         return [dict(r) for r in conn.execute(
-            "SELECT id, username, name, role, created_at FROM users ORDER BY id")]
+            "SELECT id, username, name, role, can_upload, created_at FROM users ORDER BY id")]
 
 
 @app.post("/api/users", status_code=201)
@@ -235,7 +304,52 @@ def add_user(u: UserIn, _: dict = Depends(require_admin)):
             raise HTTPException(409, "That username already exists")
         conn.commit()
         log.info("User added: %s (%s)", u.username, u.role)
+        log_activity(_["name"], "user_added", f"{u.name} ({u.role})")
         return {"created": True, "user_id": cur.lastrowid}
+
+
+class PermissionIn(BaseModel):
+    can_upload: bool
+
+
+@app.patch("/api/users/{user_id}/permissions")
+def set_permissions(user_id: int, body: PermissionIn,
+                    admin: dict = Depends(require_admin)):
+    with get_conn() as conn:
+        target = conn.execute("SELECT name FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not target:
+            raise HTTPException(404, "User not found")
+        conn.execute("UPDATE users SET can_upload = ? WHERE id = ?",
+                     (body.can_upload, user_id))
+        conn.commit()
+    log_activity(admin["name"], "permission_changed",
+                 f"{target['name']}: can_upload={'on' if body.can_upload else 'off'}")
+    return {"updated": True}
+
+
+@app.post("/api/users/{user_id}/logout-all")
+def admin_logout_user(user_id: int, admin: dict = Depends(require_admin)):
+    """Force-logout a user from every device."""
+    with get_conn() as conn:
+        target = conn.execute("SELECT name FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not target:
+            raise HTTPException(404, "User not found")
+        conn.execute("UPDATE users SET token_version = token_version + 1 WHERE id = ?",
+                     (user_id,))
+        conn.commit()
+    log_activity(admin["name"], "force_logout", target["name"])
+    return {"ok": True}
+
+
+@app.get("/api/activity")
+def activity(limit: int = 100, _: dict = Depends(require_admin)):
+    limit = max(1, min(limit, 500))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT to_char(at, 'DD Mon HH24:MI') AS at, user_name, action, detail"
+            " FROM activity_log ORDER BY at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 @app.delete("/api/users/{user_id}")
@@ -451,6 +565,8 @@ def book_slot(b: Booking, user: dict = Depends(require_user)):
         conn.commit()
         log.info("Booked '%s' on screen %s (P%s) %s → %s",
                  b.campaign_name, b.screen_id, free[0], b.start_date, b.end_date)
+        log_activity(user["name"], "booking_created",
+                     f"{b.client_name} — {b.campaign_name} on screen {b.screen_id}")
         return {"booked": True, "position_no": free[0], "campaign_id": cur.lastrowid}
 
 
@@ -469,7 +585,7 @@ class ScreenIn(BaseModel):
 
 
 @app.post("/api/screens", status_code=201)
-def add_screen(s: ScreenIn, user: dict = Depends(require_user)):
+def add_screen(s: ScreenIn, user: dict = Depends(require_upload)):
     """Add a new display to the network."""
     with get_conn() as conn:
         cur = conn.execute(
@@ -481,11 +597,12 @@ def add_screen(s: ScreenIn, user: dict = Depends(require_user)):
         )
         conn.commit()
         log.info("Screen added: %s (%s)", s.name, s.location)
+        log_activity(user["name"], "screen_added", s.name)
         return {"created": True, "screen_id": cur.lastrowid}
 
 
 @app.put("/api/screens/{screen_id}")
-def update_screen(screen_id: int, s: ScreenIn, user: dict = Depends(require_user)):
+def update_screen(screen_id: int, s: ScreenIn, user: dict = Depends(require_upload)):
     """Update an existing display's details."""
     with get_conn() as conn:
         if not conn.execute("SELECT 1 FROM screens WHERE id = ?", (screen_id,)).fetchone():
@@ -503,7 +620,7 @@ def update_screen(screen_id: int, s: ScreenIn, user: dict = Depends(require_user
 
 
 @app.delete("/api/screens/{screen_id}")
-def delete_screen(screen_id: int, user: dict = Depends(require_user)):
+def delete_screen(screen_id: int, user: dict = Depends(require_upload)):
     """Remove a display and all its bookings."""
     with get_conn() as conn:
         if not conn.execute("SELECT 1 FROM screens WHERE id = ?", (screen_id,)).fetchone():
@@ -512,6 +629,7 @@ def delete_screen(screen_id: int, user: dict = Depends(require_user)):
         conn.execute("DELETE FROM screens WHERE id = ?", (screen_id,))
         conn.commit()
         log.warning("Screen %s deleted with all bookings", screen_id)
+        log_activity(user["name"], "screen_deleted", f"screen {screen_id}")
         return {"deleted": True}
 
 
@@ -563,6 +681,7 @@ def stop_slot(slot_id: int, user: dict = Depends(require_user)):
             conn.execute("UPDATE slots SET end_date = ? WHERE id = ?", (yesterday, slot_id))
         conn.commit()
         log.info("Slot %s taken off air", slot_id)
+        log_activity(user["name"], "ad_stopped", f"slot {slot_id}")
         return {"stopped": True}
 
 
@@ -639,7 +758,7 @@ def sync_seed_photos() -> None:
 
 
 @app.post("/api/screens/{screen_id}/photo")
-async def upload_photo(screen_id: int, file: UploadFile = File(...), user: dict = Depends(require_user)):
+async def upload_photo(screen_id: int, file: UploadFile = File(...), user: dict = Depends(require_upload)):
     """Attach a photo to a screen (jpg/png)."""
     ext = (file.filename or "").rsplit(".", 1)[-1].lower()
     if ext not in ("jpg", "jpeg", "png", "webp"):
@@ -822,6 +941,94 @@ def export_xlsx(start: date | None = None, end: date | None = None,
         headers={"Content-Disposition": 'attachment; filename="revenue_report.xlsx"'})
 
 
+@app.get("/api/export/availability.xlsx")
+def export_availability(user: dict = Depends(require_user)):
+    """One click → polished Excel of every screen's availability, for any
+    logged-in user (sales send this to clients)."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    t = today()
+    with get_conn() as conn:
+        screens = conn.execute("SELECT * FROM screens ORDER BY name").fetchall()
+        payloads = [screen_payload(conn, s) for s in screens]
+
+    wb = Workbook()
+    HEAD = Font(bold=True, color="FFFFFF", size=11)
+    FILL = PatternFill("solid", fgColor="C11527")
+    THIN = Border(*[Side(style="thin", color="DDDDDD")] * 4)
+    GREEN = Font(color="1A7A44", bold=True)
+    RED = Font(color="C11527", bold=True)
+
+    ws = wb.active
+    ws.title = "Available Media"
+    ws.append([f"AJANTA ADVERTISERS — Digital Media Availability — {t.strftime('%d %b %Y')}"])
+    ws["A1"].font = Font(bold=True, size=13)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=11)
+    cols = ["Screen", "Location", "City", "Size (ft)", "Resolution",
+            "Loop Slots", "Booked Now", "Open Now", "Next Opening",
+            "Card Rate (₹/mo)", "Status"]
+    ws.append(cols)
+    for c in range(1, len(cols) + 1):
+        cell = ws.cell(row=2, column=c)
+        cell.font = HEAD
+        cell.fill = FILL
+        cell.alignment = Alignment(horizontal="center")
+    for p in sorted(payloads, key=lambda x: -x["open_now"]):
+        status = "AVAILABLE" if p["open_now"] else "FULL"
+        ws.append([
+            p["name"], p["location"], p["city"],
+            f"{p['width_ft']}x{p['height_ft']}",
+            f"{p['res_w']}x{p['res_h']}",
+            p["loop_slots"], p["live_count"], p["open_now"],
+            p["next_opening"] or "—", p["rate_month"], status,
+        ])
+        r = ws.max_row
+        ws.cell(row=r, column=8).font = GREEN if p["open_now"] else RED
+        ws.cell(row=r, column=11).font = GREEN if p["open_now"] else RED
+        for c in range(1, len(cols) + 1):
+            ws.cell(row=r, column=c).border = THIN
+    widths = [22, 30, 14, 10, 12, 10, 11, 10, 13, 15, 11]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "A3"
+
+    ws2 = wb.create_sheet("30-Day Grid")
+    dates = [(t + timedelta(days=i)) for i in range(30)]
+    ws2.append(["Screen"] + [d.strftime("%d %b") for d in dates])
+    for c in range(1, 32):
+        cell = ws2.cell(row=1, column=c)
+        cell.font = HEAD
+        cell.fill = FILL
+    ok_fill = PatternFill("solid", fgColor="E8F5EE")
+    full_fill = PatternFill("solid", fgColor="FBE3E5")
+    for p in payloads:
+        row = [p["name"]] + [p["loop_slots"] - d["booked"] for d in p["calendar"]]
+        ws2.append(row)
+        r = ws2.max_row
+        for c in range(2, 32):
+            cell = ws2.cell(row=r, column=c)
+            cell.fill = ok_fill if cell.value else full_fill
+            cell.alignment = Alignment(horizontal="center")
+    ws2.column_dimensions["A"].width = 22
+    for i in range(2, 32):
+        ws2.column_dimensions[get_column_letter(i)].width = 7
+    ws2.freeze_panes = "B2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    log_activity(user["name"], "availability_exported", "")
+    fname = f"Ajanta_Available_Media_{t.isoformat()}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 @app.get("/api/backup")
 def download_backup(user: dict = Depends(require_user)):
     """
@@ -864,7 +1071,7 @@ def download_backup(user: dict = Depends(require_user)):
     )
 
 
-APP_VERSION = "3.4"
+APP_VERSION = "4.0"
 
 
 @app.get("/api/version")

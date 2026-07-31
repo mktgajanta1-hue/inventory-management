@@ -323,6 +323,27 @@
     .frm,.stat{background:#fff;border:1px solid #ddd;box-shadow:none;backdrop-filter:none}
     .stat .n,.modal h3{color:#111}
   }
+  /* photo crop modal */
+  #crop-ov{position:fixed;inset:0;z-index:170;background:rgba(5,4,6,.85);backdrop-filter:blur(10px);
+    display:flex;align-items:center;justify-content:center;padding:16px}
+  #crop-ov.hide{display:none}
+  .cropcard{background:linear-gradient(170deg,rgba(30,20,23,.95),rgba(14,10,12,.98));border:1px solid var(--line2);
+    border-radius:20px;padding:18px;max-width:720px;width:100%;box-shadow:0 40px 100px rgba(0,0,0,.8)}
+  .cropcard h3{font-family:var(--f-brand);font-weight:400;font-size:14px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--red);margin-bottom:12px}
+  .cropstage{position:relative;width:100%;max-height:56vh;overflow:hidden;border-radius:12px;
+    background:#000;user-select:none;touch-action:none}
+  .cropstage img{display:block;width:100%;max-height:56vh;object-fit:contain;pointer-events:none}
+  #crop-box{position:absolute;border:2px solid var(--red);box-shadow:0 0 0 9999px rgba(0,0,0,.55);
+    cursor:move;border-radius:4px}
+  #crop-box .hnd{position:absolute;right:-9px;bottom:-9px;width:18px;height:18px;border-radius:50%;
+    background:var(--red);border:2px solid #fff;cursor:nwse-resize}
+  .cropbtns{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;align-items:center}
+  .ratio{background:var(--glass);border:1px solid var(--line);color:var(--muted);font-size:12px;
+    padding:6px 13px;border-radius:999px;cursor:pointer}
+  .ratio.on{color:var(--ivory);border-color:rgba(255,59,78,.55);background:rgba(255,59,78,.12)}
+  /* permission toggle */
+  .permtoggle{cursor:pointer;accent-color:var(--red);width:17px;height:17px}
   .note{font-size:12px;color:var(--muted);margin-top:10px}
   .loadingtxt{color:var(--muted);font-family:var(--f-mono);font-size:13px}
   .hide{display:none}
@@ -380,6 +401,7 @@
   <section id="view-dash">
     <div class="stats" id="stats"></div>
     <h2>Screen Network <small id="screen-count"></small>
+      <a class="btn" id="btn-avail" href="#" style="padding:7px 14px;font-size:12px;margin-left:8px">Availability Excel ⬇</a>
       <span class="spark" id="spark" title="Network occupancy — next 30 days"></span></h2>
     <div class="grid" id="screens"></div>
     <h2>Live Now <small>every advertiser currently on air</small></h2>
@@ -407,6 +429,21 @@
         <p style="font-size:12.5px;color:var(--muted)">Downloads the full database as one file — screens, clients, every booking. Do this weekly, or before any big update.</p>
       </div>
       <a class="btn" id="btn-backup" href="#" download>Download Backup</a>
+    </div>
+    <div class="frm" id="account-card">
+      <h3>My Account</h3>
+      <div class="row">
+        <div><label>Current Password</label><input id="cp-old" type="password" autocomplete="current-password"></div>
+        <div><label>New Password (min 6)</label><input id="cp-new" type="password" autocomplete="new-password"></div>
+        <div style="display:flex;align-items:flex-end;gap:10px">
+          <button class="btn" type="button" id="cp-save">Change Password</button>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;margin-top:6px;flex-wrap:wrap">
+        <button class="btn danger" type="button" id="btn-logout-all">Logout from ALL devices</button>
+        <span style="font-size:12px;color:var(--muted)">Phone, office PC, everywhere — every session ends instantly.</span>
+        <span class="msg" id="m-account"></span>
+      </div>
     </div>
     <div id="manage-banner" class="banner hide">
       Manage works when the backend is running. Start MediaTrack, then refresh this page — the header dot should turn green.
@@ -509,7 +546,7 @@
         <tbody id="rev-sales"></tbody></table></div></div>
     </div>
     <div class="frm no-print"><h3>User Management</h3>
-      <div class="tbl" style="margin-bottom:16px"><table><thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Added</th><th></th></tr></thead>
+      <div class="tbl" style="margin-bottom:16px"><table><thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Can Upload</th><th>Added</th><th></th></tr></thead>
       <tbody id="users-body"></tbody></table></div>
       <div class="row">
         <div><label>Username</label><input id="nu-user" placeholder="satish"></div>
@@ -519,13 +556,17 @@
       </div>
       <button class="btn" type="button" id="nu-add">Add User</button><span class="msg" id="m-user"></span>
     </div>
+    <div class="frm no-print"><h3>Activity Log <small style="color:var(--muted);letter-spacing:0;text-transform:none">— last 100 actions</small></h3>
+      <div class="tbl"><table><thead><tr><th>When</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
+      <tbody id="act-body"></tbody></table></div>
+    </div>
   </section>
 </main>
 
 <div id="login" class="hide">
   <form class="card" id="f-login">
     <h3>AJANTA <b>ADVERTISERS</b></h3>
-    <p>Sign in to MediaTrack <span style="opacity:.55">· v3.4</span></p>
+    <p>Sign in to MediaTrack <span style="opacity:.55">· v4.0</span></p>
     <div class="row" style="display:grid;gap:12px;margin-bottom:14px">
       <div><label>Username</label><input id="l-user" autocomplete="username" required></div>
       <div><label>Password</label><input id="l-pass" type="password" autocomplete="current-password" required></div>
@@ -535,8 +576,24 @@
   </form>
 </div>
 
+<div id="crop-ov" class="hide">
+  <div class="cropcard">
+    <h3>Crop Photo</h3>
+    <div class="cropstage" id="crop-stage"><img id="crop-img" alt="crop preview"><div id="crop-box"><span class="hnd"></span></div></div>
+    <div class="cropbtns">
+      <span class="ratio" data-r="free">Free</span>
+      <span class="ratio on" data-r="1.333">4:3</span>
+      <span class="ratio" data-r="1.777">16:9</span>
+      <span class="ratio" data-r="1">1:1</span>
+      <span style="flex:1"></span>
+      <button class="btn danger" type="button" id="crop-cancel">Use Original</button>
+      <button class="btn" type="button" id="crop-apply">Crop & Use ✓</button>
+    </div>
+  </div>
+</div>
+
 <div id="toasts" role="status" aria-live="polite"></div>
-<footer><span>AJANTA ADVERTISERS — MediaTrack v3.4</span><span>internal media operations system</span></footer>
+<footer><span>AJANTA ADVERTISERS — MediaTrack v4.0</span><span>internal media operations system</span></footer>
 
 <div class="overlay hide" id="overlay"><div class="modal" id="modal"></div></div>
 
@@ -779,6 +836,7 @@ function applyRole(){
   $('#userchip').classList.remove('hide');
   $('#u-name').textContent = ME.name; $('#u-role').textContent = ME.role;
   $('#nav-rev').classList.toggle('hide', ME.role!=='admin');
+  applyUploadPerms();
 }
 $('#f-login').addEventListener('submit', async e=>{
   e.preventDefault();
@@ -827,7 +885,7 @@ $('#f-screen').addEventListener('submit', async e=>{
       res_w:+($('#s-rw').value||0), res_h:+($('#s-rh').value||0),
       loop_slots:+$('#s-loop').value, slot_seconds:+$('#s-sec').value,
       rate_month:+($('#s-rate').value||0)});
-    const pf = $('#s-photo').files[0];
+    const pf = photoFile('s-photo');
     if(pf){
       const fd = new FormData(); fd.append('file', pf);
       const pr = await fetch(API+`/api/screens/${created.screen_id}/photo`,{method:'POST',body:fd});
@@ -858,7 +916,7 @@ $('#f-edit').addEventListener('submit', async e=>{
       res_w:+($('#e-rw').value||0), res_h:+($('#e-rh').value||0),
       loop_slots:+$('#e-loop').value, slot_seconds:+$('#e-sec').value,
       rate_month:+($('#e-rate').value||0)}, 'PUT');
-    const pf = $('#e-photo').files[0];
+    const pf = photoFile('e-photo');
     if(pf){ const fd=new FormData(); fd.append('file',pf);
       await fetch(API+`/api/screens/${id}/photo`,{method:'POST',body:fd}); $('#e-photo').value=''; }
     flash('#m-edit','display updated',true); toast('Display updated'); loadData();
@@ -938,7 +996,7 @@ document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()
   currentView = b.dataset.view;
   moveInd(b);
   ['dash','cal','manage','rev'].forEach(v=>$(`#view-${v}`).classList.toggle('hide', b.dataset.view!==v));
-  if(b.dataset.view==='rev'){ loadRevenue(); loadUsers(); }
+  if(b.dataset.view==='rev'){ loadRevenue(); loadUsers(); loadActivity(); }
 }));
 window.addEventListener('resize', ()=>moveInd(document.querySelector('nav button.on')));
 requestAnimationFrame(()=>moveInd(document.querySelector('nav button.on')));
@@ -958,6 +1016,148 @@ document.addEventListener('pointerdown', e=>{
   rip.style.cssText = `width:${d}px;height:${d}px;left:${e.clientX-r.left-d/2}px;top:${e.clientY-r.top-d/2}px`;
   b.appendChild(rip); setTimeout(()=>rip.remove(), 600);
 });
+
+/* ---------- photo crop tool ---------- */
+const croppedBlobs = {};              // inputId -> Blob
+let cropCtx = null;                   // {inputId, img, natW, natH, box:{x,y,w,h}, ratio}
+function openCrop(inputId){
+  const inp = $('#'+inputId);
+  const f = inp.files && inp.files[0];
+  if(!f) return;
+  delete croppedBlobs[inputId];
+  const url = URL.createObjectURL(f);
+  const img = $('#crop-img');
+  img.onload = ()=>{
+    const stage = $('#crop-stage'), r = img.getBoundingClientRect();
+    const ratio = 4/3;
+    let w = Math.min(r.width*.8, r.height*.8*ratio), hgt = w/ratio;
+    if(hgt > r.height*.9){ hgt = r.height*.9; w = hgt*ratio; }
+    cropCtx = {inputId, natW: img.naturalWidth, natH: img.naturalHeight, ratio,
+      box:{x:(r.width-w)/2, y:(r.height-hgt)/2, w, h:hgt}, disp:{w:r.width, h:r.height}};
+    drawBox();
+    $('#crop-ov').classList.remove('hide');
+  };
+  img.src = url;
+}
+function drawBox(){
+  const b = cropCtx.box, el = $('#crop-box');
+  el.style.left = b.x+'px'; el.style.top = b.y+'px';
+  el.style.width = b.w+'px'; el.style.height = b.h+'px';
+}
+(function(){
+  const stage = $('#crop-stage'), box = $('#crop-box');
+  let mode = null, sx=0, sy=0, start=null;
+  function clamp(){
+    const b = cropCtx.box, d = cropCtx.disp;
+    b.w = Math.max(40, Math.min(b.w, d.w)); b.h = Math.max(40, Math.min(b.h, d.h));
+    b.x = Math.max(0, Math.min(b.x, d.w-b.w)); b.y = Math.max(0, Math.min(b.y, d.h-b.h));
+  }
+  stage.addEventListener('pointerdown', e=>{
+    if(!cropCtx) return;
+    mode = e.target.classList.contains('hnd') ? 'resize' : 'move';
+    sx = e.clientX; sy = e.clientY; start = {...cropCtx.box};
+    stage.setPointerCapture(e.pointerId);
+  });
+  stage.addEventListener('pointermove', e=>{
+    if(!mode || !cropCtx) return;
+    const dx = e.clientX-sx, dy = e.clientY-sy, b = cropCtx.box;
+    if(mode==='move'){ b.x = start.x+dx; b.y = start.y+dy; }
+    else{
+      b.w = start.w+dx;
+      b.h = cropCtx.ratio ? b.w/cropCtx.ratio : start.h+dy;
+    }
+    clamp(); drawBox();
+  });
+  stage.addEventListener('pointerup', ()=>{ mode = null; });
+})();
+document.querySelectorAll('.ratio').forEach(r=>r.addEventListener('click', ()=>{
+  document.querySelectorAll('.ratio').forEach(x=>x.classList.remove('on'));
+  r.classList.add('on');
+  cropCtx.ratio = r.dataset.r==='free' ? null : +r.dataset.r;
+  if(cropCtx.ratio){ cropCtx.box.h = cropCtx.box.w/cropCtx.ratio; drawBox(); }
+}));
+$('#crop-cancel').addEventListener('click', ()=>{ $('#crop-ov').classList.add('hide'); cropCtx=null; });
+$('#crop-apply').addEventListener('click', ()=>{
+  const img = $('#crop-img'), b = cropCtx.box;
+  const r = img.getBoundingClientRect();
+  // displayed image is object-fit:contain — find the drawn area inside the stage
+  const scale = Math.min(r.width/cropCtx.natW, r.height/cropCtx.natH);
+  const drawnW = cropCtx.natW*scale, drawnH = cropCtx.natH*scale;
+  const offX = (r.width-drawnW)/2, offY = (r.height-drawnH)/2;
+  const sx = Math.max(0,(b.x-offX)/scale), sy = Math.max(0,(b.y-offY)/scale);
+  const sw = Math.min(cropCtx.natW-sx, b.w/scale), sh = Math.min(cropCtx.natH-sy, b.h/scale);
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(sw); cv.height = Math.round(sh);
+  cv.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+  cv.toBlob(blob=>{
+    croppedBlobs[cropCtx.inputId] = blob;
+    toast('Photo cropped — will upload the cropped version');
+    $('#crop-ov').classList.add('hide'); cropCtx=null;
+  }, 'image/jpeg', .92);
+});
+$('#s-photo').addEventListener('change', ()=>openCrop('s-photo'));
+$('#e-photo').addEventListener('change', ()=>openCrop('e-photo'));
+function photoFile(inputId){
+  const inp = $('#'+inputId);
+  if(croppedBlobs[inputId])
+    return new File([croppedBlobs[inputId]], 'photo.jpg', {type:'image/jpeg'});
+  return inp.files[0];
+}
+
+/* ---------- account: change password + logout all ---------- */
+$('#cp-save').addEventListener('click', async ()=>{
+  try{
+    const d = await post('/api/me/password', {old_password:$('#cp-old').value, new_password:$('#cp-new').value});
+    TOKEN = d.token; try{ localStorage.setItem('mt_token', d.token); }catch{}
+    $('#cp-old').value = $('#cp-new').value = '';
+    flash('#m-account','password changed — other devices logged out',true);
+    toast('Password changed');
+  }catch(err){ flash('#m-account',err.message,false); }
+});
+$('#btn-logout-all').addEventListener('click', async ()=>{
+  if(!confirm('Logout from ALL devices? Every session (phone, office, everywhere) ends now.')) return;
+  try{ await post('/api/logout-all'); }catch{}
+  try{ localStorage.removeItem('mt_token'); }catch{}
+  location.reload();
+});
+
+/* ---------- availability excel ---------- */
+$('#btn-avail').addEventListener('click', e=>{
+  e.preventDefault();
+  if(!apiMode){ toast('Backend required for export', false); return; }
+  window.location.href = API + '/api/export/availability.xlsx?x=1' + tokQ();
+});
+
+/* ---------- permission-aware UI ---------- */
+function applyUploadPerms(){
+  const ok = ME && (ME.role==='admin' || ME.can_upload);
+  ['f-screen','f-edit'].forEach(id=>{
+    const el = $('#'+id); if(!el) return;
+    el.style.display = ok ? '' : 'none';
+  });
+  let note = $('#perm-note');
+  if(!ok && !note){
+    note = document.createElement('p');
+    note.id = 'perm-note'; note.className = 'banner';
+    note.textContent = 'Adding or editing displays needs media-upload permission — ask your admin to enable it for your account.';
+    $('#view-manage').appendChild(note);
+  } else if(ok && note){ note.remove(); }
+}
+
+/* ---------- activity log (admin) ---------- */
+async function loadActivity(){
+  if(!ME || ME.role!=='admin') return;
+  try{
+    const r = await fetch(API+'/api/activity',{credentials:'same-origin',headers:authH()});
+    if(!r.ok) return;
+    const rows = await r.json();
+    $('#act-body').innerHTML = rows.map(a=>`
+      <tr><td class="mono">${esc(a.at)}</td><td>${esc(a.user_name)}</td>
+      <td><span class="pill">${esc(a.action)}</span></td>
+      <td style="color:var(--muted)">${esc(a.detail)}</td></tr>`).join('')
+      || '<tr><td colspan="4" class="loadingtxt">No activity yet.</td></tr>';
+  }catch{}
+}
 
 /* backup */
 $('#btn-backup').addEventListener('click', e=>{
@@ -1036,8 +1236,11 @@ async function loadUsers(){
     $('#users-body').innerHTML = users.map(u=>`
       <tr><td class="mono">${esc(u.username)}</td><td>${esc(u.name)}</td>
       <td><span class="pill ${u.role==='admin'?'up':'live'}">${u.role}</span></td>
+      <td>${u.role==='admin' ? '<span class="pill up">always</span>'
+        : `<input type="checkbox" class="permtoggle" data-uid="${u.id}" ${u.can_upload?'checked':''} title="Allow this user to add/edit displays and upload photos">`}</td>
       <td class="mono">${u.created_at||'—'}</td>
-      <td><button class="stop del-user" data-uid="${u.id}">Delete</button></td></tr>`).join('');
+      <td style="white-space:nowrap"><button class="stop kick-user" data-uid="${u.id}" title="Force logout from all devices">Kick</button>
+      <button class="stop del-user" data-uid="${u.id}">Delete</button></td></tr>`).join('');
   }catch{}
 }
 $('#nu-add').addEventListener('click', async ()=>{
@@ -1049,7 +1252,21 @@ $('#nu-add').addEventListener('click', async ()=>{
     loadUsers();
   }catch(err){ flash('#m-user',err.message,false); }
 });
+document.addEventListener('change', async e=>{
+  const t = e.target.closest('.permtoggle'); if(!t) return;
+  try{
+    await post(`/api/users/${t.dataset.uid}/permissions`, {can_upload: t.checked}, 'PATCH');
+    toast(t.checked ? 'Upload permission granted' : 'Upload permission removed');
+  }catch(err){ toast(err.message,false); t.checked = !t.checked; }
+});
 document.addEventListener('click', async e=>{
+  const kick = e.target.closest('.kick-user');
+  if(kick){
+    if(!confirm('Force-logout this user from every device?')) return;
+    try{ await post(`/api/users/${kick.dataset.uid}/logout-all`); toast('User logged out everywhere'); }
+    catch(err){ toast(err.message,false); }
+    return;
+  }
   const del = e.target.closest('.del-user'); if(!del) return;
   if(!confirm('Delete this user? They will no longer be able to log in.')) return;
   try{ await post(`/api/users/${del.dataset.uid}`, null, 'DELETE'); toast('User deleted'); loadUsers(); }

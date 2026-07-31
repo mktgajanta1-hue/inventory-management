@@ -52,8 +52,10 @@ def verify_pw(password: str, salt_hex: str, hash_hex: str) -> bool:
     return hmac.compare_digest(dk.hex(), hash_hex)
 
 
-def make_token(user_id: int, days: int = 30) -> str:
-    payload = json.dumps({"u": user_id, "e": int(time.time()) + days * 86400}).encode()
+def make_token(user_id: int, version: int = 1, days: int = 30) -> str:
+    payload = json.dumps(
+        {"u": user_id, "v": version, "e": int(time.time()) + days * 86400}
+    ).encode()
     sig = hmac.new(get_secret(), payload, "sha256").digest()
     return (
         base64.urlsafe_b64encode(payload).decode()
@@ -62,7 +64,8 @@ def make_token(user_id: int, days: int = 30) -> str:
     )
 
 
-def read_token(token: str) -> int | None:
+def read_token(token: str) -> tuple[int, int] | None:
+    """Returns (user_id, token_version) or None."""
     try:
         p64, s64 = token.split(".")
         payload = base64.urlsafe_b64decode(p64)
@@ -73,6 +76,6 @@ def read_token(token: str) -> int | None:
         data = json.loads(payload)
         if data.get("e", 0) < time.time():
             return None
-        return int(data["u"])
+        return int(data["u"]), int(data.get("v", 1))
     except Exception:
         return None
