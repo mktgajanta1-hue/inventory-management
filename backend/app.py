@@ -1071,19 +1071,24 @@ def revenue(start: date | None = None, end: date | None = None,
             continue
         filtered_bookings += 1
         r = amt(s)
-        by_screen.setdefault(s["screen"], {"revenue": 0, "bookings": 0})
+        by_screen.setdefault(s["screen"], {"revenue": 0, "bookings": 0, "team": s["team"]})
         by_screen[s["screen"]]["revenue"] += r
         by_screen[s["screen"]]["bookings"] += 1
         who = s["booked_by"] or "Unassigned"
-        by_sales.setdefault(who, {"revenue": 0, "bookings": 0, "clients_added": 0})
+        # `teams` lets the All Teams view show which book a salesperson sold from;
+        # in a single-team view it is always that one team.
+        by_sales.setdefault(who, {"revenue": 0, "bookings": 0, "clients_added": 0,
+                                  "teams": set()})
         by_sales[who]["revenue"] += r
         by_sales[who]["bookings"] += 1
+        by_sales[who]["teams"].add(s["team"])
     for c in clients:
         who = c["created_by"]
         if who and who in by_sales:
             by_sales[who]["clients_added"] += 1
         elif who:
-            by_sales.setdefault(who, {"revenue": 0, "bookings": 0, "clients_added": 1})
+            by_sales.setdefault(who, {"revenue": 0, "bookings": 0, "clients_added": 1,
+                                      "teams": set()})
 
     # occupancy over the filter window (inventory utilisation — day-based by nature)
     days_n = (end - start).days + 1
@@ -1123,11 +1128,12 @@ def revenue(start: date | None = None, end: date | None = None,
             "slots_open_now": total_loop - len(live_now),
         },
         "by_screen": sorted(
-            [{"screen": k, "revenue": v["revenue"], "bookings": v["bookings"]}
+            [{"screen": k, "revenue": v["revenue"], "bookings": v["bookings"],
+              "team": v["team"]}
              for k, v in by_screen.items()], key=lambda x: -x["revenue"]),
         "by_sales": sorted(
             [{"name": k, "revenue": v["revenue"], "bookings": v["bookings"],
-              "clients_added": v["clients_added"]}
+              "clients_added": v["clients_added"], "teams": sorted(v["teams"])}
              for k, v in by_sales.items()], key=lambda x: -x["revenue"]),
         "monthly": monthly,
     }

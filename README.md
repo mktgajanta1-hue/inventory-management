@@ -47,6 +47,29 @@ mediatrack/
 └── README.md
 ```
 
+## Interface
+
+One HTML file, no build step — the backend serves it. It is organised as a
+design system rather than per-screen CSS:
+
+* **Tokens** in `:root` — colour roles (surface scale, text scale, brand,
+  status), a 4/8/12/16/24/32/40 spacing scale, radii, type scale, control
+  heights, elevation. Nothing hard-codes a colour or a one-off margin.
+* **Components** — `.card` (+ head/body/foot), `.btn` (primary · secondary ·
+  ghost · danger · success, one height), `.field`/`.input`/`.check`, `.tablewrap`
+  + `table`, `.badge`, `.kpi`, `.state` (empty · loading · error), `.toast`.
+* **Dark select** — Chrome and Edge on Windows paint the native dropdown list in
+  the OS light theme, which made the team switcher unreadable. Every `<select>`
+  inside a `.selwrap` is mirrored by an accessible listbox (`role="listbox"`,
+  arrow keys, Home/End, Escape, `aria-activedescendant`). The real `<select>`
+  stays in the DOM, so form reads and `change` listeners are unchanged.
+
+Navigation follows the job, not the database: **Dashboard · Media Inventory ·
+Availability · Bookings · Clients**, then admin-only **Revenue & Sales ·
+Administration**, then **My Account**. User management lives in Administration —
+never mixed into the revenue report. Sales users never see the admin sections,
+and the backend refuses those calls regardless of what the browser shows.
+
 ## Teams — Odisha and Raipur
 
 Two business units share one installation and never see each other's book.

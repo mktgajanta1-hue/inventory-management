@@ -104,7 +104,7 @@ check({s["id"] for s in rai.get("/api/screens", headers={"X-Team": "all"}).json(
 # --- bookings ----------------------------------------------------------------
 t = datetime.date.today()
 booking = {"screen_id": SCREEN, "client_name": f"Shared Advertiser {SUFFIX}",
-           "campaign_name": "Isolation Test Campaign", "creative": "15s",
+           "campaign_name": f"Isolation Test Campaign {SUFFIX}", "creative": "15s",
            "start_date": t.isoformat(), "end_date": (t + datetime.timedelta(days=20)).isoformat(),
            "rate_month": 90000}
 check(odi.post("/api/campaigns", json=booking).status_code == 404,
@@ -113,10 +113,10 @@ check(rai.post("/api/campaigns", json=booking).status_code == 201,
       "the Raipur user books on their own screen")
 
 odi_books = odi.get("/api/bookings").json()
-rai_books = [b for b in rai.get("/api/bookings").json() if b["campaign"] == "Isolation Test Campaign"]
+rai_books = [b for b in rai.get("/api/bookings").json() if b["campaign"] == f"Isolation Test Campaign {SUFFIX}"]
 check(len(odi_books) == base_odi_bookings, "the Raipur booking never reaches the Odisha manage view")
 check(len(rai_books) == 1, "the Raipur team sees its own booking")
-check(all(c["campaign"] != "Isolation Test Campaign" for c in odi.get("/api/campaigns/live").json()),
+check(all(c["campaign"] != f"Isolation Test Campaign {SUFFIX}" for c in odi.get("/api/campaigns/live").json()),
       "the Raipur campaign is absent from Odisha's live list")
 
 slot_id = rai_books[0]["slot_id"]
