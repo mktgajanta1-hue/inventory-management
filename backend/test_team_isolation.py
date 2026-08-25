@@ -1,5 +1,6 @@
 """
-Team isolation checks — the security guarantee behind the Odisha / Raipur split.
+Security checks: the Odisha / Raipur isolation guarantee, and the admin-only
+user-management surface.
 
 Run against a throwaway database (it creates users and a screen and leaves them
 behind, so never point it at production):
@@ -104,7 +105,7 @@ check({s["id"] for s in rai.get("/api/screens", headers={"X-Team": "all"}).json(
 # --- bookings ----------------------------------------------------------------
 t = datetime.date.today()
 booking = {"screen_id": SCREEN, "client_name": f"Shared Advertiser {SUFFIX}",
-           "campaign_name": "Isolation Test Campaign", "creative": "15s",
+           "campaign_name": f"Isolation Test Campaign {SUFFIX}", "creative": "15s",
            "start_date": t.isoformat(), "end_date": (t + datetime.timedelta(days=20)).isoformat(),
            "rate_month": 90000}
 check(odi.post("/api/campaigns", json=booking).status_code == 404,
@@ -113,10 +114,10 @@ check(rai.post("/api/campaigns", json=booking).status_code == 201,
       "the Raipur user books on their own screen")
 
 odi_books = odi.get("/api/bookings").json()
-rai_books = [b for b in rai.get("/api/bookings").json() if b["campaign"] == "Isolation Test Campaign"]
+rai_books = [b for b in rai.get("/api/bookings").json() if b["campaign"] == f"Isolation Test Campaign {SUFFIX}"]
 check(len(odi_books) == base_odi_bookings, "the Raipur booking never reaches the Odisha manage view")
 check(len(rai_books) == 1, "the Raipur team sees its own booking")
-check(all(c["campaign"] != "Isolation Test Campaign" for c in odi.get("/api/campaigns/live").json()),
+check(all(c["campaign"] != f"Isolation Test Campaign {SUFFIX}" for c in odi.get("/api/campaigns/live").json()),
       "the Raipur campaign is absent from Odisha's live list")
 
 slot_id = rai_books[0]["slot_id"]
@@ -162,6 +163,82 @@ check(admin.patch(f"/api/screens/{SCREEN}/team", json={"team": "odisha"}).status
 check(any(s["id"] == SCREEN for s in odi.get("/api/screens").json())
       and all(s["id"] != SCREEN for s in rai.get("/api/screens").json()),
       "the screen moved, and its bookings with it")
+
+# --- admin-only user management ----------------------------------------------
+# Everything below must be refused for a sales user no matter what the browser
+# shows, and must respect the team the admin is looking at.
+victim = [u for u in admin.get("/api/users").json() if u["username"] == RAI][0]
+odi_user = [u for u in admin.get("/api/users").json() if u["username"] == ODI][0]
+
+check(all(u.get("is_active") is True for u in admin.get("/api/users").json()),
+      "users report an active status")
+
+for label, call in [
+    ("edit another user", lambda c: c.patch(f"/api/users/{victim['id']}", json={"name": "Hijacked"})),
+    ("reset another user's password",
+     lambda c: c.post(f"/api/users/{victim['id']}/password", json={"new_password": "hijacked1"})),
+    ("disable another user", lambda c: c.patch(f"/api/users/{victim['id']}", json={"is_active": False})),
+    ("change another user's team",
+     lambda c: c.patch(f"/api/users/{victim['id']}/team", json={"team": "odisha"})),
+    ("delete another user", lambda c: c.delete(f"/api/users/{victim['id']}")),
+    ("create a user", lambda c: c.post("/api/users", json={"username": f"x{SUFFIX}",
+        "name": "Sneaky", "password": "secret123", "role": "admin", "team": "all"})),
+    ("list users", lambda c: c.get("/api/users")),
+]:
+    check(call(odi).status_code == 403, f"a sales user cannot {label}")
+
+# an admin scoped to one team cannot reach the other team's users
+odi_admin = TestClient(A.app)
+odi_admin.headers["Authorization"] = admin.headers["Authorization"]
+odi_admin.headers["X-Team"] = "odisha"
+check(odi_admin.patch(f"/api/users/{victim['id']}", json={"name": "Nope"}).status_code == 404,
+      "an Odisha-scoped admin cannot edit a Raipur user")
+check(odi_admin.post(f"/api/users/{victim['id']}/password",
+                     json={"new_password": "nope123"}).status_code == 404,
+      "an Odisha-scoped admin cannot reset a Raipur user's password")
+
+# self-protection
+me_row = [u for u in admin.get("/api/users").json() if u["username"] == ROOT][0]
+check(admin.patch(f"/api/users/{me_row['id']}", json={"is_active": False}).status_code == 422,
+      "an admin cannot disable their own account")
+check(admin.patch(f"/api/users/{me_row['id']}", json={"role": "sales", "team": "odisha"}).status_code == 422,
+      "an admin cannot remove their own admin role")
+
+# edit works, and the audit trail records it
+r = admin.patch(f"/api/users/{odi_user['id']}",
+                json={"name": "Renamed Odisha", "can_upload": True})
+check(r.status_code == 200, "an admin can edit a user")
+after = [u for u in admin.get("/api/users").json() if u["id"] == odi_user["id"]][0]
+check(after["name"] == "Renamed Odisha" and after["can_upload"] is True,
+      "the edit is persisted")
+
+# disable → the account cannot sign in, and its live session stops working
+check(admin.patch(f"/api/users/{victim['id']}", json={"is_active": False}).status_code == 200,
+      "an admin can disable a user")
+blocked = TestClient(A.app).post("/api/login", json={"username": RAI, "password": PW})
+check(blocked.status_code == 403 and "disabled" in blocked.json()["detail"].lower(),
+      "a disabled user cannot sign in")
+check(rai.get("/api/screens").status_code == 401,
+      "a disabled user's existing session stops working immediately")
+check(admin.patch(f"/api/users/{victim['id']}", json={"is_active": True}).status_code == 200,
+      "an admin can re-enable a user")
+rai2, _ = login(RAI, PW)
+check(rai2.get("/api/screens").status_code == 200, "the re-enabled user can sign in again")
+
+# admin password reset: works, signs them out, and never echoes the password
+NEWPW = "reset-pw-" + SUFFIX
+r = admin.post(f"/api/users/{victim['id']}/password", json={"new_password": NEWPW})
+check(r.status_code == 200 and NEWPW not in r.text, "an admin can reset a password without echoing it")
+check(rai2.get("/api/screens").status_code == 401, "the reset signs the user out everywhere")
+check(TestClient(A.app).post("/api/login",
+      json={"username": RAI, "password": NEWPW}).status_code == 200,
+      "the user can sign in with the new password")
+check(TestClient(A.app).post("/api/login",
+      json={"username": RAI, "password": PW}).status_code == 401,
+      "the old password no longer works")
+check(admin.post(f"/api/users/{victim['id']}/password",
+                 json={"new_password": "12345"}).status_code == 422,
+      "a too-short reset password is refused")
 
 print()
 print(f"{len(FAILED)} CHECK(S) FAILED" if FAILED else "ALL CHECKS PASSED")

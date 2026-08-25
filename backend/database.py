@@ -313,6 +313,9 @@ ALTER TABLE clients ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS created_at TEXT;
 ALTER TABLE users   ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE users   ADD COLUMN IF NOT EXISTS can_upload BOOLEAN NOT NULL DEFAULT FALSE;
+-- A disabled account keeps its history (bookings are attributed by name) but
+-- cannot sign in, and any session it still holds stops working immediately.
+ALTER TABLE users   ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS activity_log (
     id        SERIAL PRIMARY KEY,
