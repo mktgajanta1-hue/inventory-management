@@ -151,11 +151,13 @@ def current_user(request: Request):
     uid, tver = parsed
     with get_conn() as conn:
         r = conn.execute(
-            "SELECT id, username, name, role, team, can_upload, token_version"
+            "SELECT id, username, name, role, team, can_upload, is_active, token_version"
             " FROM users WHERE id = ?", (uid,)
         ).fetchone()
         if not r or r["token_version"] != tver:
             return None   # token from before a logout-all — invalid everywhere
+        if not r["is_active"]:
+            return None   # disabled while signed in — every session stops here
         return dict(r)
 
 
@@ -322,7 +324,11 @@ def login(body: LoginIn, response: Response):
         ).fetchone()
     if not r or not verify_pw(body.password, r["salt"], r["pw_hash"]):
         log.warning("Failed login for '%s'", body.username)
-        raise HTTPException(401, "Wrong username or password")
+        raise HTTPException(401, "Incorrect username or password.")
+    if not r["is_active"]:
+        log.warning("Login blocked for disabled account '%s'", body.username)
+        raise HTTPException(403, "This account has been disabled. Ask your administrator "
+                                 "to re-enable it.")
     token = make_token(r["id"], r["token_version"])
     response.set_cookie(
         "mt_session", token, httponly=True, samesite="lax",
@@ -421,7 +427,7 @@ def list_users(scope: TeamScope = Depends(require_admin_scope)):
     where, params = scope.where("team")
     with get_conn() as conn:
         rows = conn.execute(
-            f"SELECT id, username, name, role, team, can_upload, created_at"
+            f"SELECT id, username, name, role, team, can_upload, is_active, created_at"
             f" FROM users WHERE {where} OR team = 'all' ORDER BY id", params)
         return [dict(r) for r in rows]
 
@@ -450,6 +456,27 @@ def add_user(u: UserIn, scope: TeamScope = Depends(require_admin_scope)):
         return {"created": True, "user_id": cur.lastrowid, "team": team}
 
 
+def _load_target(conn, user_id: int, scope: TeamScope):
+    """The user row an admin is acting on, or 404. An admin scoped to one team
+    can only reach that team's users (all-team admins are visible but only
+    manageable from the All Teams view, where the scope covers them)."""
+    row = conn.execute(
+        "SELECT id, username, name, role, team, can_upload, is_active"
+        " FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not row or not (scope.all_teams or row["team"] == scope.active):
+        raise HTTPException(404, "User not found")
+    return row
+
+
+def _active_admin_count(conn, exclude_id: int | None = None) -> int:
+    sql = "SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = TRUE"
+    params = []
+    if exclude_id is not None:
+        sql += " AND id <> ?"
+        params.append(exclude_id)
+    return conn.execute(sql, params).fetchone()[0]
+
+
 class UserTeamIn(BaseModel):
     team: str = Field(max_length=20)
 
@@ -459,10 +486,7 @@ def set_user_team(user_id: int, body: UserTeamIn,
                   scope: TeamScope = Depends(require_admin_scope)):
     """Move a user to the other team (or to all-teams access)."""
     with get_conn() as conn:
-        target = conn.execute(
-            "SELECT name, role, team FROM users WHERE id = ?", (user_id,)).fetchone()
-        if not target or not (scope.all_teams or target["team"] == scope.active):
-            raise HTTPException(404, "User not found")
+        target = _load_target(conn, user_id, scope)
         team = _user_team(target["role"], body.team)
         if team == ALL_TEAMS and not scope.all_teams:
             raise HTTPException(403, "Only an All Teams admin can grant all-team access")
@@ -475,6 +499,107 @@ def set_user_team(user_id: int, body: UserTeamIn,
     return {"updated": True, "team": team}
 
 
+class UserUpdate(BaseModel):
+    """Every field optional — only what is sent is changed."""
+    name: str | None = Field(default=None, min_length=2, max_length=80)
+    role: str | None = Field(default=None, pattern="^(admin|sales)$")
+    team: str | None = Field(default=None, max_length=20)
+    can_upload: bool | None = None
+    is_active: bool | None = None
+
+
+@app.patch("/api/users/{user_id}")
+def update_user(user_id: int, body: UserUpdate,
+                scope: TeamScope = Depends(require_admin_scope)):
+    """Edit a user: name, role, team, upload permission, active/disabled.
+
+    Guards that matter more than the UI:
+      * you cannot disable or demote yourself — that is how an installation
+        ends up with nobody who can administer it;
+      * the last active admin cannot be disabled or demoted for the same reason;
+      * a role, team or active change bumps token_version, so the user's open
+        sessions pick up the new rights (or lose them) on their next request.
+    """
+    admin = scope.user
+    with get_conn() as conn:
+        target = _load_target(conn, user_id, scope)
+
+        role = body.role or target["role"]
+        if body.role is not None or body.team is not None:
+            team = _user_team(role, body.team if body.team is not None else target["team"])
+        else:
+            team = target["team"]
+        if team == ALL_TEAMS and not scope.all_teams:
+            raise HTTPException(403, "Only an All Teams admin can grant all-team access")
+        if not scope.all_teams and team != scope.active:
+            raise HTTPException(403, f"You can only move users within the {scope.active} team")
+
+        active = target["is_active"] if body.is_active is None else body.is_active
+        if user_id == admin["id"]:
+            if not active:
+                raise HTTPException(422, "You can't disable your own account")
+            if role != "admin":
+                raise HTTPException(422, "You can't remove your own admin role")
+        if target["role"] == "admin" and (role != "admin" or not active) \
+                and _active_admin_count(conn, exclude_id=user_id) == 0:
+            raise HTTPException(422, "This is the last active admin — promote someone "
+                                     "else first")
+
+        can_upload = target["can_upload"] if body.can_upload is None else body.can_upload
+        if role == "admin":
+            can_upload = True          # admins always may add and edit displays
+        name = (body.name or target["name"]).strip()
+
+        rights_changed = (role != target["role"] or team != target["team"]
+                          or bool(active) != bool(target["is_active"]))
+        conn.execute(
+            "UPDATE users SET name = ?, role = ?, team = ?, can_upload = ?, is_active = ?"
+            + (", token_version = token_version + 1" if rights_changed else "")
+            + " WHERE id = ?",
+            (name, role, team, can_upload, active, user_id),
+        )
+        conn.commit()
+
+    changes = []
+    if name != target["name"]: changes.append(f"name → {name}")
+    if role != target["role"]: changes.append(f"role → {role}")
+    if team != target["team"]: changes.append(f"team → {TEAM_NAMES.get(team, team)}")
+    if bool(can_upload) != bool(target["can_upload"]):
+        changes.append("upload " + ("on" if can_upload else "off"))
+    if bool(active) != bool(target["is_active"]):
+        changes.append("enabled" if active else "disabled")
+    log_activity(admin["name"], "user_updated",
+                 f"{target['name']}: {', '.join(changes) or 'no change'}", team)
+    log.info("User %s updated by %s: %s", target["username"], admin["name"], changes)
+    return {"updated": True, "changes": changes}
+
+
+class AdminPasswordReset(BaseModel):
+    new_password: str = Field(min_length=6, max_length=120)
+
+
+@app.post("/api/users/{user_id}/password")
+def admin_reset_password(user_id: int, body: AdminPasswordReset,
+                         scope: TeamScope = Depends(require_admin_scope)):
+    """Set a new password for another user.
+
+    Uses exactly the same hashing as a self-service change, and signs the user
+    out of every device so an old session cannot outlive the reset. The password
+    is never echoed back."""
+    admin = scope.user
+    with get_conn() as conn:
+        target = _load_target(conn, user_id, scope)
+        salt, ph = hash_pw(body.new_password)
+        conn.execute(
+            "UPDATE users SET salt = ?, pw_hash = ?, token_version = token_version + 1"
+            " WHERE id = ?", (salt, ph, user_id),
+        )
+        conn.commit()
+    log_activity(admin["name"], "password_reset", target["name"], target["team"])
+    log.warning("Password reset for '%s' by %s", target["username"], admin["name"])
+    return {"reset": True, "signed_out": True}
+
+
 class PermissionIn(BaseModel):
     can_upload: bool
 
@@ -484,9 +609,7 @@ def set_permissions(user_id: int, body: PermissionIn,
                     scope: TeamScope = Depends(require_admin_scope)):
     admin = scope.user
     with get_conn() as conn:
-        target = conn.execute(
-            "SELECT name, team FROM users WHERE id = ?", (user_id,)).fetchone()
-        scope.guard(target, "User")
+        target = _load_target(conn, user_id, scope)
         conn.execute("UPDATE users SET can_upload = ? WHERE id = ?",
                      (body.can_upload, user_id))
         conn.commit()
@@ -501,9 +624,7 @@ def admin_logout_user(user_id: int, scope: TeamScope = Depends(require_admin_sco
     """Force-logout a user from every device."""
     admin = scope.user
     with get_conn() as conn:
-        target = conn.execute(
-            "SELECT name, team FROM users WHERE id = ?", (user_id,)).fetchone()
-        scope.guard(target, "User")
+        target = _load_target(conn, user_id, scope)
         conn.execute("UPDATE users SET token_version = token_version + 1 WHERE id = ?",
                      (user_id,))
         conn.commit()
@@ -530,16 +651,14 @@ def delete_user(user_id: int, scope: TeamScope = Depends(require_admin_scope)):
     if user_id == admin["id"]:
         raise HTTPException(422, "You can't delete your own account")
     with get_conn() as conn:
-        target = conn.execute(
-            "SELECT role, team FROM users WHERE id = ?", (user_id,)).fetchone()
-        scope.guard(target, "User")
-        if target["role"] == "admin":
-            admins = conn.execute("SELECT COUNT(*) FROM users WHERE role='admin'").fetchone()[0]
-            if admins <= 1:
-                raise HTTPException(422, "Can't delete the last admin")
+        target = _load_target(conn, user_id, scope)
+        if target["role"] == "admin" and _active_admin_count(conn, exclude_id=user_id) == 0:
+            raise HTTPException(422, "This is the last active admin — promote someone "
+                                     "else first")
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
         conn.commit()
-        return {"deleted": True}
+    log_activity(admin["name"], "user_deleted", target["name"], target["team"])
+    return {"deleted": True}
 
 
 CAL_DAYS = 30  # availability horizon
@@ -646,7 +765,7 @@ def live_campaigns(scope: TeamScope = Depends(team_scope)):
         rows = conn.execute(
             """
             SELECT s.id AS slot_id, s.position_no, s.start_date, s.end_date,
-                   s.rate_month, s.booked_by, sc.name AS screen, sc.location,
+                   s.rate_month, s.booked_by, s.team, sc.name AS screen, sc.location,
                    c.name AS campaign, c.creative, cl.company, cl.industry
             FROM slots s
             JOIN screens sc  ON sc.id = s.screen_id
@@ -872,7 +991,7 @@ def all_bookings(scope: TeamScope = Depends(team_scope)):
         rows = conn.execute(
             """
             SELECT s.id AS slot_id, s.position_no, s.start_date, s.end_date, s.rate_month,
-                   s.booked_by, sc.name AS screen, c.name AS campaign, cl.company
+                   s.booked_by, s.team, sc.name AS screen, c.name AS campaign, cl.company
             FROM slots s
             JOIN screens sc  ON sc.id = s.screen_id
             JOIN campaigns c ON c.id = s.campaign_id

@@ -7,7 +7,14 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230b0b0d'/><rect x='6' y='9' width='20' height='11' rx='2' fill='none' stroke='%23ff4d5e' stroke-width='2'/><rect x='9' y='12' width='5' height='5' rx='1' fill='%23ff4d5e'/><rect x='16' y='12' width='5' height='5' rx='1' fill='%23742029'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- Loaded without blocking rendering: on an office network that cannot reach
+     Google Fonts, a blocking stylesheet holds up the whole page (scripts after
+     it wait for the CSSOM). The app paints immediately in the fallback stack
+     and swaps the webfonts in when — or if — they arrive. -->
+<link rel="stylesheet" media="print" onload="this.media='all';this.onload=null"
+      href="https://fonts.googleapis.com/css2?family=Marcellus&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<noscript><link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Marcellus&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"></noscript>
 <style>
 /* ============================================================================
    MediaTrack design system
@@ -166,6 +173,7 @@ h2.section{font-size:var(--fs-h2);font-weight:600;letter-spacing:-.005em;margin:
 h2.section:first-child{margin-top:0}
 h2.section small{font-size:var(--fs-xs);font-weight:400;color:var(--text-3)}
 h2.section .actions{margin-left:auto;display:flex;gap:var(--s2);align-items:center}
+.scope-chip{vertical-align:middle;position:relative;top:-3px;margin-left:var(--s2)}
 
 /* ============================================================================
    4. Card
@@ -182,9 +190,14 @@ h2.section .actions{margin-left:auto;display:flex;gap:var(--s2);align-items:cent
 .card-body{padding:var(--s5)}
 .card-body.flush{padding:0}
 .card-body.tight{padding:var(--s4)}
+/* Long ranked lists scroll inside the card instead of stretching it — and its
+   neighbours — to the height of the whole network. */
+.card-body.listy{max-height:400px;overflow-y:auto}
 .card-foot{padding:var(--s3) var(--s5);border-top:1px solid var(--line);background:var(--surface-2);
   display:flex;gap:var(--s3);align-items:center;flex-wrap:wrap}
-.cards-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:var(--s4)}
+/* Two columns exactly: auto-fit would drop a third column on a wide screen and
+   leave the last card stranded on a row of its own. */
+.cards-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s4)}
 
 /* ============================================================================
    5. Buttons
@@ -227,7 +240,10 @@ h2.section .actions{margin-left:auto;display:flex;gap:var(--s2);align-items:cent
 .field{display:flex;flex-direction:column;gap:6px;min-width:0}
 .field label,.lbl{font-size:var(--fs-xs);font-weight:500;color:var(--text-2);letter-spacing:.01em}
 .field .hint{font-size:var(--fs-2xs);color:var(--text-3)}
-.field .err{font-size:var(--fs-2xs);color:var(--danger);min-height:0}
+.req{color:var(--danger);margin-left:2px}
+.optional{color:var(--text-3);font-weight:400;margin-left:4px}
+.field .err{font-size:var(--fs-2xs);color:var(--danger)}
+.field .err:empty{display:none}
 .field.span-2{grid-column:span 2}
 .field.span-all{grid-column:1/-1}
 
@@ -255,9 +271,12 @@ input[type=file]::file-selector-button{height:26px;margin-right:var(--s2);paddin
 input[type=file]::file-selector-button:hover{border-color:var(--brand-line);color:var(--brand)}
 
 /* checkbox — deliberate, not browser default */
-.check{display:inline-flex;align-items:center;gap:var(--s2);cursor:pointer;font-size:var(--fs-sm);
-  color:var(--text);user-select:none}
-.check input{position:absolute;opacity:0;width:0;height:0}
+.check{position:relative;display:inline-flex;align-items:center;gap:var(--s2);cursor:pointer;
+  font-size:var(--fs-sm);color:var(--text);user-select:none}
+/* The real input keeps the size of the box it replaces and sits on top of it,
+   so it is clickable and hit-testable rather than a zero-size ghost. */
+.check input{position:absolute;left:0;top:50%;transform:translateY(-50%);
+  width:18px;height:18px;margin:0;opacity:0;cursor:pointer}
 .check .box{width:18px;height:18px;flex:none;border-radius:var(--r1);background:var(--surface-2);
   border:1px solid var(--line-strong);display:grid;place-items:center;transition:background .15s,border-color .15s}
 .check .box::after{content:"";width:9px;height:5px;border:2px solid #fff;border-top:0;border-right:0;
@@ -291,12 +310,11 @@ input[type=file]::file-selector-button:hover{border-color:var(--brand-line);colo
   border-bottom:1.6px solid var(--text-3);transform:translateY(-2px) rotate(45deg);transition:transform .15s}
 .selbtn[aria-expanded=true] .caret{transform:translateY(1px) rotate(225deg)}
 .selwrap.is-disabled .selbtn{opacity:.55;pointer-events:none}
-.sellist{position:absolute;z-index:80;top:calc(100% + 4px);left:0;min-width:100%;max-height:280px;
+.sellist{position:fixed;z-index:130;min-width:100%;max-height:280px;
   overflow-y:auto;padding:var(--s1);margin:0;list-style:none;
   background:var(--surface-3);border:1px solid var(--line-strong);border-radius:var(--r2);
   box-shadow:var(--sh3)}
 .sellist[hidden]{display:none}
-.sellist.drop-up{top:auto;bottom:calc(100% + 4px)}
 .sellist li{padding:8px var(--s3);border-radius:var(--r1);font-size:var(--fs-sm);color:#d8d5da;
   cursor:pointer;display:flex;align-items:center;gap:var(--s2);white-space:nowrap}
 .sellist li:hover,.sellist li.active{background:#2a2a32;color:var(--text)}
@@ -310,6 +328,9 @@ input[type=file]::file-selector-button:hover{border-color:var(--brand-line);colo
    8. Tables
    ========================================================================== */
 .tablewrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+/* Summary tables scroll inside their card (the header is already sticky) so a
+   busy month cannot push the rest of the page a screen and a half down. */
+.tablewrap.capped{max-height:440px;overflow-y:auto}
 table{width:100%;border-collapse:collapse;min-width:560px}
 thead th{position:sticky;top:0;z-index:1;background:var(--surface-2);
   font-size:var(--fs-2xs);font-weight:600;letter-spacing:.06em;text-transform:uppercase;
@@ -343,6 +364,8 @@ td.actions .btn + .btn{margin-left:var(--s2)}
 .badge.brand{color:var(--brand);border-color:var(--brand-line);background:var(--brand-soft)}
 .badge.info{color:var(--info);border-color:var(--info-line);background:var(--info-soft)}
 .badge .dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.badge.muted{color:var(--text-2);border-color:var(--line-strong);background:transparent}
+tr.is-inactive td:not(.actions){opacity:.62}
 
 /* ============================================================================
    10. States: empty · loading · error
@@ -394,13 +417,50 @@ td .state{padding:var(--s6) var(--s4)}
 @keyframes toastin{from{opacity:0;transform:translateX(14px)}}
 
 /* ============================================================================
+   11b. Row action menu
+   ========================================================================== */
+.menu{position:relative;display:inline-block}
+.menu-btn{width:30px;height:var(--h-ctl-sm);display:inline-flex;align-items:center;
+  justify-content:center;gap:2px;background:transparent;border:1px solid transparent;
+  border-radius:var(--r2);cursor:pointer;color:var(--text-2);transition:background .15s,
+  border-color .15s,color .15s}
+.menu-btn:hover,.menu-btn[aria-expanded=true]{background:var(--surface-3);
+  border-color:var(--line-strong);color:var(--text)}
+.menu-btn:focus-visible{box-shadow:var(--focus)}
+.menu-btn i{width:3px;height:3px;border-radius:50%;background:currentColor;display:block}
+.menu-list{position:fixed;z-index:130;min-width:190px;
+  padding:var(--s1);margin:0;list-style:none;background:var(--surface-3);
+  border:1px solid var(--line-strong);border-radius:var(--r2);box-shadow:var(--sh3);
+  text-align:left}
+.menu-list[hidden]{display:none}
+.menu-list button{display:flex;align-items:center;gap:var(--s2);width:100%;padding:8px var(--s3);
+  background:none;border:0;border-radius:var(--r1);color:#d8d5da;font:inherit;
+  font-size:var(--fs-sm);text-align:left;cursor:pointer;white-space:nowrap}
+.menu-list button:hover,.menu-list button:focus-visible{background:#2a2a32;color:var(--text);outline:none}
+.menu-list button.danger{color:var(--danger)}
+.menu-list button.danger:hover{background:var(--danger-soft)}
+.menu-list hr{border:0;border-top:1px solid var(--line);margin:var(--s1) 0}
+
+/* ============================================================================
    12. Modal / overlay
    ========================================================================== */
 .overlay{position:fixed;inset:0;z-index:120;background:rgba(6,6,8,.72);backdrop-filter:blur(6px);
   display:flex;align-items:center;justify-content:center;padding:var(--s5);animation:fade .18s ease}
 @keyframes fade{from{opacity:0}}
 .modal{width:100%;max-width:680px;max-height:88vh;overflow-y:auto;background:var(--surface);
-  border:1px solid var(--line-strong);border-radius:var(--r4);box-shadow:var(--sh3)}
+  border:1px solid var(--line-strong);border-radius:var(--r4);box-shadow:var(--sh3);
+  animation:modalin .18s cubic-bezier(.2,.8,.3,1)}
+.modal.narrow{max-width:460px}
+@keyframes modalin{from{opacity:0;transform:translateY(8px)}}
+.modal-foot{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap;
+  padding:var(--s4) var(--s5);border-top:1px solid var(--line);background:var(--surface-2)}
+.modal-foot .grow{flex:1}
+.iconbtn{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;
+  background:transparent;border:1px solid transparent;border-radius:var(--r2);cursor:pointer;
+  color:var(--text-2);font-size:17px;line-height:1;transition:background .15s,color .15s}
+.iconbtn:hover{background:var(--surface-3);color:var(--text)}
+.iconbtn:focus-visible{box-shadow:var(--focus)}
+body.dialog-open{overflow:hidden}
 .modal-photo{height:210px;background:var(--surface-2)}
 .modal-photo img{width:100%;height:100%;object-fit:cover;display:block}
 .modal-head{display:flex;align-items:flex-start;gap:var(--s3);padding:var(--s5) var(--s5) var(--s4)}
@@ -513,7 +573,9 @@ td .state{padding:var(--s6) var(--s4)}
 .rankrow{display:grid;grid-template-columns:1fr 120px;gap:var(--s3);align-items:center;
   padding:var(--s3) 0;border-bottom:1px solid var(--line)}
 .rankrow:last-child{border-bottom:0}
-.rankrow .nm{font-size:var(--fs-sm);font-weight:500;min-width:0}
+.rankrow .nm{font-size:var(--fs-sm);font-weight:500;min-width:0;display:flex;
+  align-items:center;gap:var(--s2);flex-wrap:wrap}
+.rankrow .nm small{flex-basis:100%}
 .rankrow .nm small{display:block;font-size:var(--fs-2xs);color:var(--text-3);font-weight:400}
 .rankrow .bar{grid-column:1/-1;height:4px;border-radius:2px;background:var(--surface-3);overflow:hidden}
 .rankrow .bar i{display:block;height:100%;border-radius:2px;background:var(--brand-solid);
@@ -691,19 +753,33 @@ footer{border-top:1px solid var(--line);margin-top:var(--s7);padding:var(--s4) v
         <div class="card-head"><div class="ht"><div class="card-title">Live now</div>
           <div class="card-sub">Every advertiser currently on air</div></div>
           <div class="actions"><span class="badge" id="live-count-badge">—</span></div></div>
-        <div class="card-body flush"><div class="tablewrap"><table>
+        <div class="card-body flush"><div class="tablewrap capped"><table>
           <thead><tr id="live-head"></tr></thead><tbody id="live-body"></tbody>
         </table></div></div>
       </div>
       <div class="card">
         <div class="card-head"><div class="ht"><div class="card-title">Loop occupancy by screen</div>
           <div class="card-sub">Slots filled right now</div></div></div>
-        <div class="card-body" id="dash-occupancy"></div>
+        <div class="card-body listy" id="dash-occupancy"></div>
       </div>
       <div class="card">
         <div class="card-head"><div class="ht"><div class="card-title">Ending soon</div>
           <div class="card-sub">Campaigns off air within 7 days</div></div></div>
-        <div class="card-body" id="dash-ending"></div>
+        <div class="card-body listy" id="dash-ending"></div>
+      </div>
+      <div class="card admin-only hide">
+        <div class="card-head"><div class="ht"><div class="card-title">Revenue by screen</div>
+          <div class="card-sub" id="dash-rev-sub">Last 30 days</div></div>
+          <div class="actions"><button class="btn btn-ghost btn-sm" type="button"
+            data-goto="rev">Full report</button></div></div>
+        <div class="card-body listy" id="dash-rev"></div>
+      </div>
+      <div class="card admin-only hide">
+        <div class="card-head"><div class="ht"><div class="card-title">Top sellers</div>
+          <div class="card-sub" id="dash-sales-sub">Last 30 days</div></div>
+          <div class="actions"><button class="btn btn-ghost btn-sm" type="button"
+            data-goto="rev">Full report</button></div></div>
+        <div class="card-body listy" id="dash-sales"></div>
       </div>
     </div>
   </section>
@@ -721,15 +797,17 @@ footer{border-top:1px solid var(--line);margin-top:var(--s7);padding:var(--s4) v
     <div id="inv-forms">
       <h2 class="section">Manage displays</h2>
       <div class="cards-2">
-        <form class="card" id="f-screen">
+        <form class="card" id="f-screen" novalidate>
           <div class="card-head"><div class="ht"><div class="card-title">Add a display</div>
             <div class="card-sub">Adds to the team you are viewing</div></div></div>
           <div class="card-body">
             <div class="form-grid cols-2">
               <div class="field"><label for="s-name">Name</label>
-                <input id="s-name" required placeholder="Baramunda LED"></div>
+                <input id="s-name" required placeholder="Baramunda LED">
+                <span class="err" id="e-s-name"></span></div>
               <div class="field"><label for="s-loc">Location</label>
-                <input id="s-loc" required placeholder="Baramunda Bus Stand"></div>
+                <input id="s-loc" required placeholder="Baramunda Bus Stand">
+                <span class="err" id="e-s-loc"></span></div>
               <div class="field"><label for="s-city">City</label>
                 <input id="s-city" value="Bhubaneswar"></div>
               <div class="field hide" id="s-team-wrap"><label for="s-team">Team</label>
@@ -737,9 +815,11 @@ footer{border-top:1px solid var(--line);margin-top:var(--s7);padding:var(--s4) v
                   <option value="odisha">Odisha</option><option value="raipur">Raipur</option>
                 </select></div></div>
               <div class="field"><label for="s-w">Width (ft)</label>
-                <input id="s-w" type="number" step="0.5" required placeholder="20"></div>
+                <input id="s-w" type="number" step="0.5" required placeholder="20">
+                <span class="err" id="e-s-w"></span></div>
               <div class="field"><label for="s-h">Height (ft)</label>
-                <input id="s-h" type="number" step="0.5" required placeholder="10"></div>
+                <input id="s-h" type="number" step="0.5" required placeholder="10">
+                <span class="err" id="e-s-h"></span></div>
               <div class="field"><label for="s-rw">Resolution width (px)</label>
                 <input id="s-rw" type="number" placeholder="1600"></div>
               <div class="field"><label for="s-rh">Resolution height (px)</label>
@@ -761,22 +841,26 @@ footer{border-top:1px solid var(--line);margin-top:var(--s7);padding:var(--s4) v
           </div>
         </form>
 
-        <form class="card" id="f-edit">
+        <form class="card" id="f-edit" novalidate>
           <div class="card-head"><div class="ht"><div class="card-title">Update a display</div>
             <div class="card-sub">Edit details, replace the photo, or remove it</div></div></div>
           <div class="card-body">
             <div class="form-grid cols-2">
               <div class="field span-2"><label for="e-screen">Choose display</label>
                 <div class="selwrap"><select id="e-screen"></select></div></div>
-              <div class="field"><label for="e-name">Name</label><input id="e-name" required></div>
-              <div class="field"><label for="e-loc">Location</label><input id="e-loc" required></div>
+              <div class="field"><label for="e-name">Name</label><input id="e-name" required>
+                <span class="err" id="e-e-name"></span></div>
+              <div class="field"><label for="e-loc">Location</label><input id="e-loc" required>
+                <span class="err" id="e-e-loc"></span></div>
               <div class="field"><label for="e-city">City</label><input id="e-city"></div>
               <div class="field"><label for="e-rate">Rate / month (₹)</label>
                 <input id="e-rate" type="number" min="0"></div>
               <div class="field"><label for="e-w">Width (ft)</label>
-                <input id="e-w" type="number" step="0.5" required></div>
+                <input id="e-w" type="number" step="0.5" required>
+                <span class="err" id="e-e-w"></span></div>
               <div class="field"><label for="e-h">Height (ft)</label>
-                <input id="e-h" type="number" step="0.5" required></div>
+                <input id="e-h" type="number" step="0.5" required>
+                <span class="err" id="e-e-h"></span></div>
               <div class="field"><label for="e-rw">Resolution width (px)</label>
                 <input id="e-rw" type="number"></div>
               <div class="field"><label for="e-rh">Resolution height (px)</label>
@@ -820,28 +904,33 @@ footer{border-top:1px solid var(--line);margin-top:var(--s7);padding:var(--s4) v
       <div class="t"><h1>Bookings</h1><p>Reserve airtime and manage what is already sold.</p></div>
     </div>
     <div id="book-banner-slot"></div>
-    <form class="card" id="f-book">
+    <form class="card" id="f-book" novalidate>
       <div class="card-head"><div class="ht"><div class="card-title">Book a slot</div>
         <div class="card-sub">The first free loop position for the whole window is assigned automatically</div></div></div>
       <div class="card-body">
         <div class="form-grid cols-2">
           <div class="field">
-            <label for="b-screen">Screen</label>
+            <label for="b-screen">Screen<span class="req" aria-hidden="true">*</span></label>
             <div class="selwrap"><select id="b-screen" required></select></div>
             <span class="hint" id="b-screen-avail"></span>
+            <span class="err" id="e-b-screen"></span>
           </div>
-          <div class="field"><label for="b-client">Client / company</label>
+          <div class="field"><label for="b-client">Client / company<span class="req" aria-hidden="true">*</span></label>
             <input id="b-client" list="client-list" required placeholder="Start typing a client name">
-            <datalist id="client-list"></datalist></div>
-          <div class="field"><label for="b-name">Campaign name</label>
-            <input id="b-name" required placeholder="Diwali Burst"></div>
-          <div class="field"><label for="b-creative">Creative</label>
+            <datalist id="client-list"></datalist>
+            <span class="err" id="e-b-client"></span></div>
+          <div class="field"><label for="b-name">Campaign name<span class="req" aria-hidden="true">*</span></label>
+            <input id="b-name" required placeholder="Diwali Burst">
+            <span class="err" id="e-b-name"></span></div>
+          <div class="field"><label for="b-creative">Creative<span class="optional">optional</span></label>
             <input id="b-creative" placeholder="AC Offer 15s"></div>
-          <div class="field"><label for="b-start">Start date</label>
-            <input id="b-start" type="date" required></div>
-          <div class="field"><label for="b-end">End date</label>
-            <input id="b-end" type="date" required></div>
-          <div class="field"><label for="b-rate">Booking amount (₹)</label>
+          <div class="field"><label for="b-start">Start date<span class="req" aria-hidden="true">*</span></label>
+            <input id="b-start" type="date" required>
+            <span class="err" id="e-b-start"></span></div>
+          <div class="field"><label for="b-end">End date<span class="req" aria-hidden="true">*</span></label>
+            <input id="b-end" type="date" required>
+            <span class="err" id="e-b-end"></span></div>
+          <div class="field"><label for="b-rate">Booking amount (₹)<span class="optional">optional</span></label>
             <input id="b-rate" type="number" min="0" placeholder="Auto">
             <span class="hint">Blank uses the screen's card rate pro-rated over the window.</span></div>
         </div>
@@ -862,7 +951,8 @@ footer{border-top:1px solid var(--line);margin-top:var(--s7);padding:var(--s4) v
         </div>
       </div>
       <div class="card-body flush"><div class="tablewrap"><table>
-        <thead><tr><th>Screen</th><th>Client</th><th>Campaign</th><th class="num">Pos</th>
+        <thead><tr><th>Screen</th><th class="team-col hide">Team</th><th>Client</th>
+          <th>Campaign</th><th class="num">Pos</th>
           <th class="num">Start</th><th class="num">End</th><th class="num right">Amount</th>
           <th>Status</th><th>Booked by</th><th></th></tr></thead>
         <tbody id="bk-body"></tbody>
@@ -919,12 +1009,12 @@ footer{border-top:1px solid var(--line);margin-top:var(--s7);padding:var(--s4) v
       <div class="card">
         <div class="card-head"><div class="ht"><div class="card-title">Revenue by screen</div>
           <div class="card-sub">Selected range</div></div></div>
-        <div class="card-body" id="rev-screens"></div>
+        <div class="card-body listy" id="rev-screens"></div>
       </div>
       <div class="card">
         <div class="card-head"><div class="ht"><div class="card-title">Sales leaderboard</div>
           <div class="card-sub" id="rev-sales-sub">Selected range</div></div></div>
-        <div class="card-body flush"><div class="tablewrap"><table>
+        <div class="card-body flush"><div class="tablewrap capped"><table>
           <thead><tr><th style="width:44px">#</th><th>Salesperson</th>
             <th class="team-col hide">Team</th><th class="num right">Revenue</th>
             <th class="num right">Bookings</th><th class="num right">Clients</th>
@@ -949,7 +1039,8 @@ footer{border-top:1px solid var(--line);margin-top:var(--s7);padding:var(--s4) v
       </div>
       <div class="card-body flush"><div class="tablewrap"><table>
         <thead><tr><th>User</th><th>Username</th><th>Role</th><th>Team</th>
-          <th>Upload access</th><th class="num">Added</th><th></th></tr></thead>
+          <th>Upload access</th><th>Status</th><th class="num">Added</th>
+          <th class="right">Actions</th></tr></thead>
         <tbody id="users-body"></tbody>
       </table></div></div>
     </div>
@@ -995,7 +1086,7 @@ footer{border-top:1px solid var(--line);margin-top:var(--s7);padding:var(--s4) v
     <div class="card">
       <div class="card-head"><div class="ht"><div class="card-title">Activity log</div>
         <div class="card-sub">Last 100 actions on the team you are viewing</div></div></div>
-      <div class="card-body flush"><div class="tablewrap"><table>
+      <div class="card-body flush"><div class="tablewrap capped"><table>
         <thead><tr><th class="num">When</th><th>User</th><th>Action</th><th>Detail</th>
           <th class="team-col hide">Team</th></tr></thead>
         <tbody id="act-body"></tbody>
@@ -1136,6 +1227,14 @@ const tokQ = () => (TOKEN ? '&token='+encodeURIComponent(TOKEN) : '')
 let apiMode = false, ME = null, currentView = 'dash', firstPaint = true;
 let clientsCache = [], screensCache = [], bookingsCache = [], liveCache = [];
 
+/* When each dataset was last loaded. Moving between tabs re-uses what is
+   already on screen instead of re-fetching; a team switch or a write clears it. */
+const fresh = {};
+const STALE_MS = 45000;
+const isStale = key => !fresh[key] || Date.now() - fresh[key] > STALE_MS;
+const invalidate = (...keys) => (keys.length ? keys : Object.keys(fresh))
+  .forEach(k => { delete fresh[k]; });
+
 $('#today').textContent = new Date().toLocaleDateString('en-IN',
   {weekday:'short', day:'numeric', month:'short', year:'numeric'});
 
@@ -1186,6 +1285,46 @@ const skelRows = (cols, n = 4) =>
    ========================================================================== */
 let selSeq = 0;
 const openLists = new Set();
+
+/* Menus and dropdowns live inside cards and scrollable tables, both of which
+   clip absolutely-positioned children. Fixed positioning escapes the clipping;
+   the trade-off is that the panel has to close when the page scrolls. */
+function placeFloating(anchor, panel, {align = 'left', matchWidth = false} = {}){
+  panel.style.position = 'fixed';
+  panel.style.top = '0px';
+  panel.style.left = '0px';
+  if (matchWidth) panel.style.minWidth = anchor.getBoundingClientRect().width + 'px';
+  const r = anchor.getBoundingClientRect();
+  const h = Math.min(panel.scrollHeight + 2, parseFloat(getComputedStyle(panel).maxHeight) || 1e4);
+  const below = window.innerHeight - r.bottom - 8;
+  const up = below < h && r.top > below;
+  panel.style.top = (up ? Math.max(8, r.top - h - 4) : r.bottom + 4) + 'px';
+  const w = panel.offsetWidth;
+  const left = align === 'right' ? r.right - w : r.left;
+  panel.style.left = Math.round(Math.min(Math.max(8, left), window.innerWidth - w - 8)) + 'px';
+  panel.classList.toggle('drop-up', up);
+}
+/* Keep a fixed panel glued to its anchor while the page moves. It only closes
+   when the anchor itself scrolls out of sight — a stray reflow should not make
+   a menu the user just opened disappear. */
+function trackFloating(anchor, panel, opts, close){
+  let raf = 0;
+  const handler = () => {
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      const r = anchor.getBoundingClientRect();
+      if (!anchor.isConnected || r.bottom < 0 || r.top > window.innerHeight){ close(); return; }
+      placeFloating(anchor, panel, opts);
+    });
+  };
+  window.addEventListener('scroll', handler, true);
+  window.addEventListener('resize', handler);
+  return () => {
+    cancelAnimationFrame(raf);
+    window.removeEventListener('scroll', handler, true);
+    window.removeEventListener('resize', handler);
+  };
+}
 
 function enhanceSelect(sel){
   const wrap = sel.parentElement;
@@ -1243,16 +1382,17 @@ function enhanceSelect(sel){
     list.hidden = true;
     btn.setAttribute('aria-expanded', 'false');
     btn.removeAttribute('aria-activedescendant');
+    if (stopScrollWatch){ stopScrollWatch(); stopScrollWatch = null; }
     openLists.delete(close);
   };
+  let stopScrollWatch = null;
   const open = () => {
     openLists.forEach(fn => fn());
     sync();
     list.hidden = false;
     btn.setAttribute('aria-expanded', 'true');
-    // Flip the menu above the control when there is no room below it.
-    const room = window.innerHeight - btn.getBoundingClientRect().bottom;
-    list.classList.toggle('drop-up', room < Math.min(280, list.scrollHeight + 12));
+    placeFloating(btn, list, {matchWidth:true});
+    stopScrollWatch = trackFloating(btn, list, {matchWidth:true}, close);
     setActive(sel.selectedIndex);
     openLists.add(close);
   };
@@ -1323,7 +1463,7 @@ async function api(path, opts = {}){
   // server's own message reach the form instead of bouncing to the login panel.
   if (r.status === 401 && !DEMO_MODE && path !== '/api/login'){
     showLogin();
-    throw Object.assign(new Error('Your session has ended — please sign in again.'), {auth:true});
+    throw Object.assign(new Error('Your session has expired. Please sign in again.'), {auth:true});
   }
   if (!r.ok){
     let detail = '';
@@ -1401,6 +1541,17 @@ function applyTeam(){
     ? 'Everyone who can sign in to MediaTrack' : `${label} team members and all-team admins`;
   // Team columns only mean something when both teams are in view.
   $$('.team-col').forEach(el => el.classList.toggle('hide', TEAM !== 'all'));
+  // Every page title carries the scope, so combined figures are never mistaken
+  // for one team's.
+  $$('.page-head .t h1').forEach(h => {
+    let chip = h.querySelector('.scope-chip');
+    if (!chip){
+      chip = document.createElement('span');
+      h.append(' ', chip);
+    }
+    chip.className = 'badge scope-chip' + (TEAM === 'all' ? ' brand' : '');
+    chip.textContent = TEAM === 'all' ? 'All Teams' : (TEAM_LABEL[TEAM] || '');
+  });
   // A team-scoped admin must say which team a new display belongs to.
   $('#s-team-wrap').classList.toggle('hide', !(ME.can_switch_teams && TEAM === 'all'));
   if (TEAM && TEAM !== 'all'){ $('#s-team').value = TEAM; $('#nu-team').value = TEAM; }
@@ -1441,6 +1592,8 @@ function resetTeamData(){
   $('#act-body').innerHTML = skelRows(5, 3);
   ['#kpis','#rev-kpis'].forEach(s => $(s).innerHTML =
     [...Array(4)].map(() => '<div class="skel" style="height:118px"></div>').join(''));
+  ['#dash-rev','#dash-sales','#dash-occupancy','#dash-ending','#rev-screens'].forEach(s =>
+    $(s).innerHTML = [...Array(3)].map(() => '<div class="skel row-skel"></div>').join(''));
 }
 
 /* ============================================================================
@@ -1453,9 +1606,12 @@ function showView(v){
   $$('.nav-btn').forEach(b => b.classList.toggle('on', b.dataset.view === v));
   VIEWS.forEach(x => $('#view-' + x).classList.toggle('hide', x !== v));
   window.scrollTo({top:0, behavior:'instant'});
-  if (v === 'rev'){ loadRevenue(); }
-  if (v === 'admin'){ loadUsers(); loadActivity(); }
-  if (v === 'clients'){ renderClients(); }
+  if ((v === 'rev' || v === 'dash') && isStale('revenue')) loadRevenue();
+  if (v === 'admin'){
+    if (isStale('users')) loadUsers();
+    if (isStale('activity')) loadActivity();
+  }
+  if (v === 'clients') renderClients();
 }
 $$('.nav-btn').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
 
@@ -1482,8 +1638,12 @@ async function loadData(){
     ]);
     apiMode = true;
     clientsCache = clients; bookingsCache = bookings;
+    fresh.data = Date.now();
     setConnection('live');
     render(screens, live);
+    // The dashboard's revenue snapshot rides on the same payload the Revenue
+    // page uses; load it once the inventory is in so screen locations resolve.
+    if (ME && ME.role === 'admin' && isStale('revenue')) loadRevenue();
   } catch (e){
     apiMode = false;
     if (e.auth){ finishFirstPaint(); return; }   // login panel is already up
@@ -1493,6 +1653,8 @@ async function loadData(){
     toast(msg, 'error');
   } finally { finishFirstPaint(); }
 }
+
+function invalidateAfterWrite(){ invalidate('data', 'revenue', 'activity'); }
 
 function finishFirstPaint(){
   if (!firstPaint) return;
@@ -1512,8 +1674,10 @@ function showLoadError(msg){
   const retry = `<button class="btn btn-secondary btn-sm" type="button" onclick="loadData()">Try again</button>`;
   $('#screens').innerHTML = `<div class="card" style="grid-column:1/-1">
     ${stateHTML({icon:'!', title:'Unable to load inventory', hint:msg, action:retry, error:true})}</div>`;
-  $('#live-body').innerHTML = rowState(7, {icon:'!', title:'Unable to load live campaigns', hint:msg, error:true});
-  $('#bk-body').innerHTML = rowState(10, {icon:'!', title:'Unable to load bookings', hint:msg, error:true});
+  $('#live-body').innerHTML = rowState(TEAM === 'all' ? 8 : 7,
+    {icon:'!', title:'Unable to load live campaigns', hint:msg, error:true});
+  $('#bk-body').innerHTML = rowState(TEAM === 'all' ? 11 : 10,
+    {icon:'!', title:'Unable to load bookings', hint:msg, error:true});
   $('#cl-body').innerHTML = rowState(7, {icon:'!', title:'Unable to load clients', hint:msg, error:true});
   $('#kpis').innerHTML = '';
   $('#live-count-badge').textContent = '—';
@@ -1599,12 +1763,15 @@ function render(screens, live){
       hint:'Add your first digital screen to start tracking availability and bookings.'})}</div>`;
 
   /* -- live now ---------------------------------------------------------- */
-  const liveCols = apiMode ? 7 : 6;
-  $('#live-head').innerHTML = `<th>Screen</th><th>Advertiser</th><th>Campaign</th>
+  const showTeam = TEAM === 'all';
+  const liveCols = (apiMode ? 7 : 6) + (showTeam ? 1 : 0);
+  $('#live-head').innerHTML = `<th>Screen</th>${showTeam ? '<th>Team</th>' : ''}
+    <th>Advertiser</th><th>Campaign</th>
     <th class="num">Pos</th><th class="num">Ends</th><th>Days left</th>${apiMode ? '<th></th>' : ''}`;
   $('#live-count-badge').textContent = `${live.length} on air`;
   $('#live-body').innerHTML = live.map(l => `<tr>
       <td class="cell-strong">${esc(l.screen)}</td>
+      ${showTeam ? `<td>${teamBadge(l.team) || '—'}</td>` : ''}
       <td>${esc(l.company)}</td>
       <td class="dim">${esc(l.campaign)}</td>
       <td class="num">P${l.position_no}</td>
@@ -1672,8 +1839,10 @@ function renderBookings(){
   const rows = bookingsCache.filter(b => !q ||
     [b.screen, b.company, b.campaign, b.booked_by].some(v => String(v||'').toLowerCase().includes(q)));
   const STATUS = {live:'ok', upcoming:'info', ended:''};
+  const showTeam = TEAM === 'all';
   $('#bk-body').innerHTML = rows.map(b => `<tr>
       <td class="cell-strong">${esc(b.screen)}</td>
+      ${showTeam ? `<td>${teamBadge(b.team) || '—'}</td>` : ''}
       <td>${esc(b.company)}</td>
       <td class="dim">${esc(b.campaign)}</td>
       <td class="num">P${b.position_no}</td>
@@ -1684,7 +1853,7 @@ function renderBookings(){
       <td class="dim">${esc(b.booked_by || '—')}</td>
       <td class="actions"><button class="btn btn-secondary btn-sm is-danger del-book"
         data-slot="${b.slot_id}">Delete</button></td></tr>`).join('')
-    || rowState(10, q
+    || rowState(showTeam ? 11 : 10, q
       ? {icon:'⌕', title:'No bookings match that search', hint:'Try a different client, screen or campaign.'}
       : {icon:'▤', title:'No bookings yet',
          hint: apiMode ? 'Book a slot above and it will show up here.'
@@ -1728,27 +1897,125 @@ function updateBookAvailability(){
 $('#b-screen').addEventListener('change', updateBookAvailability);
 
 /* ============================================================================
-   Screen detail modal
+   Dialog
+   ----------------------------------------------------------------------------
+   One implementation for every modal in the app: screen detail, edit user,
+   reset password. Handles the backdrop, the close button, Escape, a focus trap
+   and the page-scroll lock, so no caller has to get those right again.
+   ========================================================================== */
+let closeDialog = null;
+
+function openDialog({title, sub = '', media = '', body = '', foot = '', narrow = false,
+                     onMount}){
+  if (closeDialog) closeDialog();
+  const ov = $('#overlay'), m = $('#modal');
+  const returnFocus = document.activeElement;
+  m.className = 'modal' + (narrow ? ' narrow' : '');
+  m.innerHTML = `${media}
+    <div class="modal-head">
+      <div class="ht"><h3 id="dialog-title">${esc(title)}</h3>
+        ${sub ? `<div class="sub">${sub}</div>` : ''}</div>
+      <button class="iconbtn" type="button" data-close aria-label="Close dialog">&times;</button>
+    </div>
+    <div class="modal-body">${body}</div>
+    ${foot ? `<div class="modal-foot">${foot}</div>` : ''}`;
+  m.setAttribute('aria-labelledby', 'dialog-title');
+  ov.classList.remove('hide');
+  document.body.classList.add('dialog-open');
+
+  const focusable = () => [...m.querySelectorAll(
+      'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea,[tabindex]:not([tabindex="-1"])')]
+    .filter(el => el.offsetParent !== null);
+  const onKey = e => {
+    if (e.key === 'Escape'){ e.preventDefault(); close(); return; }
+    // Enter in a text field commits the dialog, like a form would.
+    if (e.key === 'Enter' && e.target.matches('input:not([type=checkbox])')){
+      const save = m.querySelector('[data-save]');
+      if (save){ e.preventDefault(); save.click(); }
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const f = focusable();
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+  };
+  const onClick = e => {
+    if (e.target === ov || e.target.closest('[data-close]')) close();
+  };
+  function close(){
+    if (closeDialog !== close) return;
+    closeDialog = null;
+    ov.removeEventListener('keydown', onKey);
+    ov.removeEventListener('click', onClick);
+    ov.classList.add('hide');
+    m.innerHTML = '';
+    document.body.classList.remove('dialog-open');
+    if (returnFocus && returnFocus.isConnected) returnFocus.focus();
+  }
+  ov.addEventListener('keydown', onKey);
+  ov.addEventListener('click', onClick);
+  closeDialog = close;
+  enhanceAllSelects();
+  if (onMount) onMount(m, close);
+  const f = focusable();
+  (m.querySelector('[data-autofocus]') || f[0] || m).focus();
+  return close;
+}
+
+/* ============================================================================
+   Row action menu
+   ========================================================================== */
+let closeMenu = null;
+function toggleMenu(btn){
+  const list = btn.nextElementSibling;
+  const wasOpen = !list.hidden;
+  if (closeMenu) closeMenu();
+  if (wasOpen) return;
+  list.hidden = false;
+  btn.setAttribute('aria-expanded', 'true');
+  placeFloating(btn, list, {align:'right'});
+  const stopTracking = trackFloating(btn, list, {align:'right'}, () => closeMenu && closeMenu());
+  closeMenu = () => {
+    list.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    stopTracking();
+    closeMenu = null;
+  };
+}
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.menu-btn');
+  if (btn){ e.stopPropagation(); toggleMenu(btn); return; }
+  if (closeMenu && !e.target.closest('.menu-list')) closeMenu();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && closeMenu) closeMenu();
+  if (!['ArrowDown','ArrowUp'].includes(e.key)) return;
+  const list = e.target.closest('.menu-list');
+  if (!list) return;
+  e.preventDefault();
+  const items = [...list.querySelectorAll('button')];
+  const i = items.indexOf(e.target);
+  items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus();
+});
+
+/* ============================================================================
+   Screen detail
    ========================================================================== */
 function openScreen(id){
   const s = screensCache.find(x => x.id === id);
   if (!s) return;
   const st = screenStatus(s);
-  $('#modal').innerHTML = `
-    ${s.photo ? `<div class="modal-photo"><img src="${API}/photos/${esc(s.photo)}" alt=""
-        onerror="this.parentElement.style.display='none'"></div>` : ''}
-    <div class="modal-head">
-      <div class="ht">
-        <h3>${esc(s.name)}</h3>
-        <div class="sub">${esc(s.location)}${s.city ? ', ' + esc(s.city) : ''}</div>
-        <div style="margin-top:var(--s2);display:flex;gap:var(--s2);flex-wrap:wrap">
-          <span class="badge ${st.cls}"><span class="dot"></span>${st.text}</span>
-          ${teamBadge(s.team)}
-        </div>
-      </div>
-      <button class="btn btn-ghost btn-sm" type="button" id="modal-close">Close</button>
-    </div>
-    <div class="modal-body">
+  openDialog({
+    title: s.name,
+    media: s.photo ? `<div class="modal-photo"><img src="${API}/photos/${esc(s.photo)}" alt=""
+        onerror="this.parentElement.style.display='none'"></div>` : '',
+    sub: `${esc(s.location)}${s.city ? ', ' + esc(s.city) : ''}
+      <div style="margin-top:var(--s2);display:flex;gap:var(--s2);flex-wrap:wrap">
+        <span class="badge ${st.cls}"><span class="dot"></span>${st.text}</span>
+        ${teamBadge(s.team)}</div>`,
+    body: `
       <div class="metrics">
         <div class="metric"><div class="v" style="color:var(--brand)">${s.live_count}</div>
           <div class="k">Ads running</div></div>
@@ -1769,26 +2036,23 @@ function openScreen(id){
         <tbody>${s.live.map(a => `<tr><td>${esc(a.company)}</td><td class="dim">${esc(a.campaign)}</td>
           <td class="num">P${a.position_no}</td>
           <td class="num">${fmt(a.end_date)}</td></tr>`).join('')}</tbody></table></div>`
-        : stateHTML({icon:'○', title:'Loop empty', hint:'Every slot on this screen is available right now.'})}
-      <button class="btn btn-primary" style="margin-top:var(--s4)"
-        type="button" id="modal-book">Book a slot on this screen</button>
-    </div>`;
-  $('#overlay').classList.remove('hide');
-  $('#modal-close').addEventListener('click', closeModal);
-  $('#modal-book').addEventListener('click', () => {
-    closeModal();
-    showView('book');
-    $('#b-screen').value = String(s.id);
-    updateBookAvailability();
-    $('#b-client').focus();
+        : stateHTML({icon:'○', title:'Loop empty', hint:'Every slot on this screen is available right now.'})}`,
+    foot: `<button class="btn btn-primary" type="button" data-book>Book a slot on this screen</button>
+           <span class="grow"></span>
+           <button class="btn btn-ghost" type="button" data-close>Close</button>`,
+    onMount: (m, close) => {
+      m.querySelector('[data-book]').addEventListener('click', () => {
+        close();
+        showView('book');
+        $('#b-screen').value = String(s.id);
+        updateBookAvailability();
+        $('#b-client').focus();
+      });
+    },
   });
 }
-const closeModal = () => $('#overlay').classList.add('hide');
-$('#overlay').addEventListener('click', e => { if (e.target.id === 'overlay') closeModal(); });
 document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
-  if (!$('#overlay').classList.contains('hide')) closeModal();
-  if (!$('#crop-ov').classList.contains('hide')) $('#crop-cancel').click();
+  if (e.key === 'Escape' && !$('#crop-ov').classList.contains('hide')) $('#crop-cancel').click();
 });
 
 /* ============================================================================
@@ -1802,7 +2066,7 @@ document.addEventListener('click', async e => {
   if (stop){
     if (!confirm('Take this ad off air from today? The loop position is freed immediately.')) return;
     try { await post(`/api/slots/${stop.dataset.slot}/stop`, null, 'PATCH');
-      toast('Ad taken off air', 'success'); loadData(); }
+      toast('Ad taken off air', 'success'); invalidateAfterWrite(); loadData(); }
     catch (err){ toast(err.message, 'error'); }
     return;
   }
@@ -1810,7 +2074,7 @@ document.addEventListener('click', async e => {
   if (del){
     if (!confirm('Delete this booking permanently? This cannot be undone.')) return;
     try { await post(`/api/slots/${del.dataset.slot}`, null, 'DELETE');
-      toast('Booking deleted', 'success'); loadData(); }
+      toast('Booking deleted', 'success'); invalidateAfterWrite(); loadData(); }
     catch (err){ toast(err.message, 'error'); }
     return;
   }
@@ -1818,34 +2082,29 @@ document.addEventListener('click', async e => {
   if (dc){
     if (!confirm(`Delete "${dc.dataset.name}" and every booking for them? This cannot be undone.`)) return;
     try { await post(`/api/clients/${dc.dataset.cid}`, null, 'DELETE');
-      toast('Client deleted', 'success'); loadData(); }
+      toast('Client deleted', 'success'); invalidateAfterWrite(); loadData(); }
     catch (err){ toast(err.message, 'error'); }
     return;
   }
-  const kick = e.target.closest('.kick-user');
+  const kick = e.target.closest('.act-kick');
   if (kick){
-    if (!confirm('Force-logout this user from every device?')) return;
+    if (closeMenu) closeMenu();
+    if (!confirm('Sign this user out of every device? They can sign in again straight away.')) return;
     try { await post(`/api/users/${kick.dataset.uid}/logout-all`);
       toast('User signed out everywhere', 'success'); }
     catch (err){ toast(err.message, 'error'); }
     return;
   }
-  const du = e.target.closest('.del-user');
+  const du = e.target.closest('.act-delete');
   if (du){
-    if (!confirm('Delete this user? They will no longer be able to sign in.')) return;
+    if (closeMenu) closeMenu();
+    const target = userById(du.dataset.uid);
+    if (!confirm(`Delete ${target ? target.name : 'this user'}? This cannot be undone — `
+        + 'disable them instead if you only want to block sign-in.')) return;
     try { await post(`/api/users/${du.dataset.uid}`, null, 'DELETE');
       toast('User deleted', 'success'); loadUsers(); }
     catch (err){ toast(err.message, 'error'); }
   }
-});
-
-document.addEventListener('change', async e => {
-  const t = e.target.closest('.permtoggle');
-  if (!t) return;
-  try {
-    await post(`/api/users/${t.dataset.uid}/permissions`, {can_upload:t.checked}, 'PATCH');
-    toast(t.checked ? 'Upload permission granted' : 'Upload permission removed', 'success');
-  } catch (err){ toast(err.message, 'error'); t.checked = !t.checked; }
 });
 
 /* ============================================================================
@@ -1890,6 +2149,7 @@ $('#teamsel').addEventListener('change', e => {
   TEAM = next;
   try { localStorage.setItem('mt_team', TEAM); } catch {}
   applyTeam();
+  invalidate();                          // nothing from the old team is reusable
   resetTeamData();                       // never leave the other team's rows up
   loadData();
   if (ME && ME.role === 'admin'){
@@ -1909,11 +2169,78 @@ $('#nu-role').addEventListener('change', e => {
 /* ============================================================================
    Forms
    ========================================================================== */
+/* Validation lives next to the fields, not in a toast: the person filling the
+   form should see which input is wrong without looking away. */
+function validateRequired(spec){
+  let firstBad = null;
+  spec.forEach(([id, msg]) => {
+    const el = $('#' + id), err = $('#e-' + id);
+    const bad = !String(el.value).trim();
+    if (err) err.textContent = bad ? msg : '';
+    el.setAttribute('aria-invalid', bad ? 'true' : 'false');
+    if (bad && !firstBad) firstBad = el;
+  });
+  if (firstBad) firstBad.focus();
+  return !firstBad;
+}
+
+
+const BOOK_FIELDS = ['b-screen', 'b-client', 'b-name', 'b-start', 'b-end'];
+function clearBookErrors(){
+  BOOK_FIELDS.forEach(id => {
+    const err = $('#e-' + id);
+    if (err) err.textContent = '';
+    $('#' + id).removeAttribute('aria-invalid');
+  });
+}
+function setBookError(id, msg){
+  const err = $('#e-' + id);
+  if (err) err.textContent = msg;
+  $('#' + id).setAttribute('aria-invalid', 'true');
+}
+
+/* A loop position must be free for the whole window. The 30-day calendar only
+   carries counts, but that is enough: if any day in the window is completely
+   full, no position can be free for all of it. */
+function windowConflict(screen, start, end){
+  if (!screen || !screen.calendar) return null;
+  const clash = screen.calendar.find(c =>
+    c.date >= start && c.date <= end && c.booked >= screen.loop_slots);
+  if (!clash) return null;
+  return `${screen.name} has no free loop position on ${fmt(clash.date)}. `
+    + (screen.next_opening ? `Next opening is ${fmt(screen.next_opening)}.` : '');
+}
+
+function validateBooking(){
+  clearBookErrors();
+  const screen = screensCache.find(x => x.id == +$('#b-screen').value);
+  const client = $('#b-client').value.trim(), name = $('#b-name').value.trim();
+  const start = $('#b-start').value, end = $('#b-end').value;
+  const errors = [];
+  if (!screen) errors.push(['b-screen', 'Choose a screen.']);
+  if (client.length < 2) errors.push(['b-client', 'Enter the client or company name.']);
+  if (name.length < 2) errors.push(['b-name', 'Enter a campaign name.']);
+  if (!start) errors.push(['b-start', 'Choose a start date.']);
+  if (!end) errors.push(['b-end', 'Choose an end date.']);
+  if (start && end && end < start) errors.push(['b-end', 'The end date cannot be before the start date.']);
+  if (!errors.length){
+    const clash = windowConflict(screen, start, end);
+    if (clash) errors.push(['b-screen', clash]);
+  }
+  errors.forEach(([id, msg]) => setBookError(id, msg));
+  if (errors.length) $('#' + errors[0][0]).focus();
+  return !errors.length;
+}
+['b-start', 'b-end', 'b-screen'].forEach(id =>
+  $('#' + id).addEventListener('change', () => {
+    if ($('#e-b-end').textContent || $('#e-b-screen').textContent) validateBooking();
+  }));
+
 $('#f-book').addEventListener('submit', async e => {
   e.preventDefault();
   if (!apiMode) return flash('#m-book', 'The MediaTrack server is not reachable.', false);
-  if ($('#b-end').value < $('#b-start').value)
-    return flash('#m-book', 'The end date must be on or after the start date.', false);
+  $('#m-book').textContent = '';
+  if (!validateBooking()) return;
   try {
     const d = await post('/api/campaigns', {
       screen_id:+$('#b-screen').value, client_name:$('#b-client').value.trim(),
@@ -1923,13 +2250,23 @@ $('#f-book').addEventListener('submit', async e => {
     flash('#m-book', `Booked on loop position P${d.position_no}.`, true);
     toast(`Booked on P${d.position_no}`, 'success');
     e.target.reset();
-    loadData();
-  } catch (err){ flash('#m-book', err.message, false); }
+    clearBookErrors();
+    invalidateAfterWrite(); loadData();
+  } catch (err){
+    if (/loop position|free position/i.test(err.message)) setBookError('b-screen', err.message);
+    else flash('#m-book', err.message, false);
+  }
 });
 
 $('#f-screen').addEventListener('submit', async e => {
   e.preventDefault();
   if (!apiMode) return flash('#m-screen', 'The MediaTrack server is not reachable.', false);
+  if (!validateRequired([
+      ['s-name', 'Enter a name for the display.'],
+      ['s-loc', 'Enter where the display is.'],
+      ['s-w', 'Enter the width in feet.'],
+      ['s-h', 'Enter the height in feet.']])) return;
+  $('#m-screen').textContent = '';
   try {
     const created = await post('/api/screens', {
       name:$('#s-name').value, location:$('#s-loc').value, city:$('#s-city').value,
@@ -1949,7 +2286,7 @@ $('#f-screen').addEventListener('submit', async e => {
     toast('Display added', 'success');
     e.target.reset();
     $('#s-city').value = 'Bhubaneswar'; $('#s-loop').value = 8; $('#s-sec').value = 15;
-    loadData();
+    invalidateAfterWrite(); loadData();
   } catch (err){ flash('#m-screen', err.message, false); }
 });
 
@@ -1967,6 +2304,12 @@ $('#e-screen').addEventListener('change', prefillEdit);
 $('#f-edit').addEventListener('submit', async e => {
   e.preventDefault();
   if (!apiMode) return flash('#m-edit', 'The MediaTrack server is not reachable.', false);
+  if (!validateRequired([
+      ['e-name', 'Enter a name for the display.'],
+      ['e-loc', 'Enter where the display is.'],
+      ['e-w', 'Enter the width in feet.'],
+      ['e-h', 'Enter the height in feet.']])) return;
+  $('#m-edit').textContent = '';
   const id = +$('#e-screen').value;
   try {
     await post(`/api/screens/${id}`, {
@@ -1984,7 +2327,7 @@ $('#f-edit').addEventListener('submit', async e => {
     }
     flash('#m-edit', 'Display updated.', true);
     toast('Display updated', 'success');
-    loadData();
+    invalidateAfterWrite(); loadData();
   } catch (err){ flash('#m-edit', err.message, false); }
 });
 
@@ -1997,7 +2340,7 @@ $('#e-delete').addEventListener('click', async () => {
     await post(`/api/screens/${id}`, null, 'DELETE');
     flash('#m-edit', 'Display deleted.', true);
     toast('Display deleted', 'success');
-    loadData();
+    invalidateAfterWrite(); loadData();
   } catch (err){ flash('#m-edit', err.message, false); }
 });
 
@@ -2066,9 +2409,12 @@ async function loadRevenue(){
     toast(msg, 'error');
     return;
   }
+  fresh.revenue = Date.now();
+  renderDashRevenue(d);
   const s = d.summary, totalSlots = s.slots_booked_now + s.slots_open_now;
   $('#rev-kpis').innerHTML = [
-    {k:'Revenue in range', v:inrShort(s.filtered_revenue), brand:true,
+    {k:TEAM === 'all' ? 'Combined revenue in range' : 'Revenue in range',
+     v:inrShort(s.filtered_revenue), brand:true,
      s:`${s.bookings_in_range} booking${s.bookings_in_range === 1 ? '' : 's'} started`},
     {k:'Today', v:inrShort(s.today), s:'Booked today'},
     {k:'This month', v:inrShort(s.month), s:'Month to date'},
@@ -2076,7 +2422,8 @@ async function loadRevenue(){
     {k:'Occupancy in range', v:s.occupancy_pct + '%', s:'Inventory used', meter:s.occupancy_pct},
     {k:'Campaigns', v:s.campaigns_total, s:'All time'},
     {k:'Slots booked now', v:s.slots_booked_now,
-     s:`Of ${totalSlots} across the network`, meter:pct(s.slots_booked_now, totalSlots)},
+     s:`Of ${totalSlots} across ${TEAM === 'all' ? 'both teams' : 'the network'}`,
+     meter:pct(s.slots_booked_now, totalSlots)},
     {k:'Slots open now', v:s.slots_open_now,
      s:`${pct(s.slots_open_now, totalSlots)}% of the network free`,
      meter:pct(s.slots_open_now, totalSlots), ok:true},
@@ -2123,6 +2470,40 @@ async function loadRevenue(){
         hint:'Bookings are credited to whoever created them.'});
 }
 
+/* The dashboard's management questions — what did we sell, which screens earn,
+   who is selling — answered from the same payload the Revenue page uses, so no
+   extra request and no second version of the numbers. */
+function renderDashRevenue(d){
+  if (!ME || ME.role !== 'admin') return;
+  const range = `${fmt(d.range.start)} – ${fmt(d.range.end)}`;
+  $('#dash-rev-sub').textContent = `${inrShort(d.summary.filtered_revenue)} booked · ${range}`;
+  $('#dash-sales-sub').textContent = range;
+  const smx = Math.max(...d.by_screen.map(x => x.revenue), 1);
+  $('#dash-rev').innerHTML = d.by_screen.slice(0, 5).map(x => `<div class="rankrow">
+      <div class="nm">${esc(x.screen)}<small>${x.bookings} booking${x.bookings === 1 ? '' : 's'}${
+        TEAM === 'all' && x.team ? ' · ' + esc(TEAM_LABEL[x.team] || x.team) : ''}</small></div>
+      <div class="v">${inrShort(x.revenue)}</div>
+      <span class="bar"><i style="width:${Math.max(2, 100 * x.revenue / smx)}%"></i></span>
+    </div>`).join('')
+    || stateHTML({icon:'▤', title:'No revenue in this range',
+        hint:'Bookings are counted from the day they start.'});
+  const lmx = Math.max(...d.by_sales.map(x => x.revenue), 1);
+  $('#dash-sales').innerHTML = d.by_sales.slice(0, 5).map((x, i) => `<div class="rankrow">
+      <div class="nm"><span class="rank ${i === 0 && x.revenue ? 'top' : ''}">${i + 1}</span>
+        ${esc(x.name)}<small>${x.bookings} booking${x.bookings === 1 ? '' : 's'}${
+        x.clients_added ? ` · ${x.clients_added} new client${x.clients_added === 1 ? '' : 's'}` : ''}</small></div>
+      <div class="v">${inrShort(x.revenue)}</div>
+      <span class="bar"><i style="width:${Math.max(2, 100 * x.revenue / lmx)}%"></i></span>
+    </div>`).join('')
+    || stateHTML({icon:'▤', title:'No sales in this range',
+        hint:'Bookings are credited to whoever created them.'});
+}
+
+document.addEventListener('click', e => {
+  const go = e.target.closest('[data-goto]');
+  if (go) showView(go.dataset.goto);
+});
+
 $('#rev-chips').addEventListener('click', e => {
   const c = e.target.closest('.chip');
   if (!c) return;
@@ -2135,54 +2516,214 @@ $('#rev-chips').addEventListener('click', e => {
 /* ============================================================================
    Administration (admin)
    ========================================================================== */
+let usersCache = [];
+
 async function loadUsers(){
   if (!ME || ME.role !== 'admin') return;
   let users;
   try { users = await api('/api/users'); }
   catch (err){
     if (err.auth) return;
-    $('#users-body').innerHTML = rowState(7,
-      {icon:'!', title:'Unable to load users', hint:friendlyError(err), error:true});
+    $('#users-body').innerHTML = rowState(8,
+      {icon:'!', title:'Unable to load users', hint:friendlyError(err), error:true,
+       action:`<button class="btn btn-secondary btn-sm" type="button" onclick="loadUsers()">Try again</button>`});
     return;
   }
-  const canMove = ME.can_switch_teams && TEAM === 'all';
-  $('#users-body').innerHTML = users.map(u => `<tr>
+  usersCache = users;
+  fresh.users = Date.now();
+  $('#users-body').innerHTML = users.map(u => {
+    const self = ME.username === u.username;
+    return `<tr class="${u.is_active ? '' : 'is-inactive'}">
       <td><span style="display:flex;align-items:center;gap:var(--s2)">
         <span class="avatar">${esc(initials(u.name))}</span>
-        <span class="cell-strong">${esc(u.name)}</span></span></td>
+        <span class="cell-strong">${esc(u.name)}${self ? ' <span class="badge">You</span>' : ''}</span>
+      </span></td>
       <td class="num dim">${esc(u.username)}</td>
       <td><span class="badge ${u.role === 'admin' ? 'brand' : ''}">
         ${u.role === 'admin' ? 'Admin' : 'Sales'}</span></td>
-      <td>${canMove && u.role !== 'admin'
-        ? `<div class="selwrap compact" style="width:118px">
-             <select class="team-move" data-uid="${u.id}" aria-label="Team for ${esc(u.name)}">
-               <option value="odisha"${u.team === 'odisha' ? ' selected' : ''}>Odisha</option>
-               <option value="raipur"${u.team === 'raipur' ? ' selected' : ''}>Raipur</option>
-             </select></div>`
-        : `<span class="badge ${u.team === 'all' ? 'brand' : ''}">${esc(TEAM_LABEL[u.team] || u.team || '—')}</span>`}</td>
-      <td>${u.role === 'admin'
-        ? '<span class="badge brand">Always</span>'
-        : `<label class="check"><input type="checkbox" class="permtoggle" data-uid="${u.id}"
-             ${u.can_upload ? 'checked' : ''}><span class="box"></span>
-             <span class="sr-only">Allow ${esc(u.name)} to add and edit displays</span></label>`}</td>
+      <td><span class="badge ${u.team === 'all' ? 'brand' : ''}">
+        ${esc(TEAM_LABEL[u.team] || u.team || '—')}</span></td>
+      <td>${u.role === 'admin' ? '<span class="badge muted">Always</span>'
+        : u.can_upload ? '<span class="badge ok">Allowed</span>'
+        : '<span class="badge muted">No</span>'}</td>
+      <td><span class="badge ${u.is_active ? 'ok' : 'muted'}"><span class="dot"></span>
+        ${u.is_active ? 'Active' : 'Disabled'}</span></td>
       <td class="num dim">${esc(u.created_at || '—')}</td>
-      <td class="actions">
-        <button class="btn btn-secondary btn-sm kick-user" data-uid="${u.id}"
-          title="Force sign-out from every device">Sign out</button>
-        <button class="btn btn-secondary btn-sm is-danger del-user" data-uid="${u.id}">Delete</button></td>
-    </tr>`).join('')
-    || rowState(7, {icon:'▤', title:'No users yet', hint:'Add the first team member above.'});
-  enhanceAllSelects();
+      <td class="actions"><span class="menu">
+        <button class="menu-btn" type="button" aria-haspopup="menu" aria-expanded="false"
+          aria-label="Actions for ${esc(u.name)}"><i></i><i></i><i></i></button>
+        <ul class="menu-list" role="menu" hidden>
+          <li role="none"><button role="menuitem" type="button" class="act-edit"
+            data-uid="${u.id}">Edit user</button></li>
+          <li role="none"><button role="menuitem" type="button" class="act-reset"
+            data-uid="${u.id}">Reset password</button></li>
+          ${self ? '' : `<li role="none"><button role="menuitem" type="button" class="act-toggle"
+            data-uid="${u.id}">${u.is_active ? 'Disable user' : 'Enable user'}</button></li>`}
+          <li role="none"><button role="menuitem" type="button" class="act-kick"
+            data-uid="${u.id}">Sign out of all devices</button></li>
+          ${self ? '' : `<li role="none"><hr></li>
+          <li role="none"><button role="menuitem" type="button" class="act-delete danger"
+            data-uid="${u.id}">Delete user</button></li>`}
+        </ul></span></td>
+    </tr>`;
+  }).join('')
+    || rowState(8, {icon:'▤', title:'No users yet', hint:'Add the first team member above.'});
 }
 
-document.addEventListener('change', async e => {
-  const sel = e.target.closest('.team-move');
-  if (!sel) return;
+const userById = id => usersCache.find(u => String(u.id) === String(id));
+
+/* -- edit user ----------------------------------------------------------- */
+function openEditUser(id){
+  const u = userById(id);
+  if (!u) return;
+  openDialog({
+    title: 'Edit user',
+    sub: `${esc(u.name)} · <span class="mono">${esc(u.username)}</span>`,
+    body: `
+      <div class="form-grid cols-2">
+        <div class="field"><label for="eu-name">Full name</label>
+          <input id="eu-name" data-autofocus value="${esc(u.name)}">
+          <span class="err" id="e-eu-name"></span></div>
+        <div class="field"><label for="eu-username">Username</label>
+          <input id="eu-username" value="${esc(u.username)}" readonly disabled>
+          <span class="hint">Usernames cannot be changed.</span></div>
+        <div class="field"><label for="eu-role">Role</label>
+          <div class="selwrap"><select id="eu-role">
+            <option value="sales"${u.role === 'sales' ? ' selected' : ''}>Sales</option>
+            <option value="admin"${u.role === 'admin' ? ' selected' : ''}>Admin</option>
+          </select></div></div>
+        <div class="field"><label for="eu-team">Team</label>
+          <div class="selwrap"><select id="eu-team">
+            <option value="odisha"${u.team === 'odisha' ? ' selected' : ''}>Odisha</option>
+            <option value="raipur"${u.team === 'raipur' ? ' selected' : ''}>Raipur</option>
+            <option value="all"${u.team === 'all' ? ' selected' : ''}>Admin — all teams</option>
+          </select></div>
+          <span class="hint">Sales users only ever see their own team's data.</span></div>
+        <div class="field"><span class="lbl">Upload permission</span>
+          <label class="check" style="height:var(--h-ctl)">
+            <input type="checkbox" id="eu-upload" ${u.can_upload ? 'checked' : ''}>
+            <span class="box"></span><span>Can add and edit displays</span></label></div>
+        <div class="field"><span class="lbl">Status</span>
+          <label class="check" style="height:var(--h-ctl)">
+            <input type="checkbox" id="eu-active" ${u.is_active ? 'checked' : ''}>
+            <span class="box"></span><span>Account active</span></label>
+          <span class="hint">A disabled account cannot sign in.</span></div>
+      </div>
+      <p class="form-msg err" id="m-edituser" style="margin-top:var(--s3)"></p>`,
+    foot: `<button class="btn btn-primary" type="button" data-save>Save changes</button>
+           <button class="btn btn-ghost" type="button" data-close>Cancel</button>`,
+    onMount: (m, close) => {
+      const role = m.querySelector('#eu-role'), team = m.querySelector('#eu-team'),
+            upload = m.querySelector('#eu-upload'), active = m.querySelector('#eu-active');
+      const self = ME.username === u.username;
+      if (self){ active.disabled = true; role.disabled = true; }
+      const syncRole = () => {
+        const isAdmin = role.value === 'admin';
+        if (isAdmin){ team.value = 'all'; upload.checked = true; }
+        else if (team.value === 'all') team.value = TEAM !== 'all' ? TEAM : 'odisha';
+        team.disabled = isAdmin || self;
+        upload.disabled = isAdmin;
+      };
+      role.addEventListener('change', syncRole);
+      syncRole();
+      m.querySelector('[data-save]').addEventListener('click', async e => {
+        const name = m.querySelector('#eu-name').value.trim();
+        const bad = name.length < 2;
+        m.querySelector('#e-eu-name').textContent = bad ? 'Enter the person\u2019s full name.' : '';
+        m.querySelector('#eu-name').setAttribute('aria-invalid', bad);
+        if (bad) return;
+        e.target.disabled = true;
+        try {
+          const r = await post(`/api/users/${u.id}`, {
+            name, role: role.value, team: team.value,
+            can_upload: upload.checked, is_active: active.checked}, 'PATCH');
+          close();
+          toast(r.changes && r.changes.length ? `${name} updated` : 'No changes to save', 'success');
+          loadUsers(); loadActivity();
+        } catch (err){
+          e.target.disabled = false;
+          m.querySelector('#m-edituser').textContent = err.message;
+        }
+      });
+    },
+  });
+}
+
+/* -- reset password ------------------------------------------------------ */
+function openResetPassword(id){
+  const u = userById(id);
+  if (!u) return;
+  openDialog({
+    title: 'Reset password',
+    sub: `${esc(u.name)} · <span class="mono">${esc(u.username)}</span>`,
+    narrow: true,
+    body: `
+      <div class="banner warn" style="margin-bottom:var(--s4)">
+        This signs ${esc(u.name)} out of every device. Give them the new password in
+        person — it is never shown again.</div>
+      <div class="form-grid">
+        <div class="field"><label for="rp-new">New password</label>
+          <input id="rp-new" type="password" data-autofocus autocomplete="new-password">
+          <span class="hint">At least 6 characters.</span>
+          <span class="err" id="e-rp-new"></span></div>
+        <div class="field"><label for="rp-confirm">Confirm new password</label>
+          <input id="rp-confirm" type="password" autocomplete="new-password">
+          <span class="err" id="e-rp-confirm"></span></div>
+        <label class="check"><input type="checkbox" id="rp-show"><span class="box"></span>
+          <span>Show password while typing</span></label>
+      </div>
+      <p class="form-msg err" id="m-reset" style="margin-top:var(--s3)"></p>`,
+    foot: `<button class="btn btn-primary" type="button" data-save>Reset password</button>
+           <button class="btn btn-ghost" type="button" data-close>Cancel</button>`,
+    onMount: (m, close) => {
+      const pw = m.querySelector('#rp-new'), cf = m.querySelector('#rp-confirm');
+      m.querySelector('#rp-show').addEventListener('change', e => {
+        const t = e.target.checked ? 'text' : 'password';
+        pw.type = t; cf.type = t;
+      });
+      m.querySelector('[data-save]').addEventListener('click', async e => {
+        const errs = {
+          '#e-rp-new': pw.value.length < 6 ? 'Password needs at least 6 characters.' : '',
+          '#e-rp-confirm': pw.value !== cf.value ? 'The two passwords do not match.' : '',
+        };
+        Object.entries(errs).forEach(([sel, msg]) => { m.querySelector(sel).textContent = msg; });
+        pw.setAttribute('aria-invalid', !!errs['#e-rp-new']);
+        cf.setAttribute('aria-invalid', !!errs['#e-rp-confirm']);
+        if (Object.values(errs).some(Boolean)) return;
+        e.target.disabled = true;
+        try {
+          await post(`/api/users/${u.id}/password`, {new_password: pw.value});
+          close();
+          toast(`Password reset for ${u.name} — they were signed out everywhere`, 'success');
+          loadActivity();
+        } catch (err){
+          e.target.disabled = false;
+          m.querySelector('#m-reset').textContent = err.message;
+        }
+      });
+    },
+  });
+}
+
+/* -- row actions --------------------------------------------------------- */
+document.addEventListener('click', async e => {
+  const edit = e.target.closest('.act-edit');
+  if (edit){ if (closeMenu) closeMenu(); openEditUser(edit.dataset.uid); return; }
+  const reset = e.target.closest('.act-reset');
+  if (reset){ if (closeMenu) closeMenu(); openResetPassword(reset.dataset.uid); return; }
+  const toggle = e.target.closest('.act-toggle');
+  if (!toggle) return;
+  if (closeMenu) closeMenu();
+  const u = userById(toggle.dataset.uid);
+  if (!u) return;
+  const turningOff = u.is_active;
+  if (turningOff && !confirm(`Disable ${u.name}? They are signed out immediately and `
+      + 'cannot sign in again until you re-enable them.')) return;
   try {
-    await post(`/api/users/${sel.dataset.uid}/team`, {team:sel.value}, 'PATCH');
-    toast('Team updated', 'success');
-    loadUsers();
-  } catch (err){ toast(err.message, 'error'); loadUsers(); }
+    await post(`/api/users/${u.id}`, {is_active: !turningOff}, 'PATCH');
+    toast(`${u.name} ${turningOff ? 'disabled' : 'enabled'}`, 'success');
+    loadUsers(); loadActivity();
+  } catch (err){ toast(err.message, 'error'); }
 });
 
 $('#btn-new-user').addEventListener('click', () => {
@@ -2236,6 +2777,7 @@ async function loadActivity(){
       {icon:'!', title:'Unable to load the activity log', hint:friendlyError(err), error:true});
     return;
   }
+  fresh.activity = Date.now();
   $('#act-body').innerHTML = rows.map(a => `<tr>
       <td class="num dim">${esc(a.at)}</td>
       <td>${esc(a.user_name)}</td>
