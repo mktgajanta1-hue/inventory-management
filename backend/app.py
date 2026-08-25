@@ -105,9 +105,9 @@ def ensure_default_admin() -> None:
             password = "ajanta123"   # local dev only
         salt, ph = hash_pw(password)
         conn.execute(
-            "INSERT INTO users (username, name, role, salt, pw_hash, created_at)"
-            " VALUES (?,?,?,?,?,?)",
-            (username, os.environ.get("ADMIN_NAME", "Admin"), "admin", salt, ph,
+            "INSERT INTO users (username, name, role, team, salt, pw_hash, created_at)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (username, os.environ.get("ADMIN_NAME", "Admin"), "admin", "all", salt, ph,
              date.today().isoformat()),
         )
         conn.commit()
@@ -151,7 +151,7 @@ def current_user(request: Request):
     uid, tver = parsed
     with get_conn() as conn:
         r = conn.execute(
-            "SELECT id, username, name, role, can_upload, token_version"
+            "SELECT id, username, name, role, team, can_upload, token_version"
             " FROM users WHERE id = ?", (uid,)
         ).fetchone()
         if not r or r["token_version"] != tver:
@@ -181,12 +181,127 @@ def require_upload(user: dict = Depends(require_user)) -> dict:
     return user
 
 
-def log_activity(user_name: str, action: str, detail: str = "") -> None:
+# ---------------------------------------------------------------- teams
+#
+# Odisha and Raipur are two business units on one installation. Isolation is
+# enforced here, in the API layer, on top of a `team` column on every business
+# row — not in the browser. Every read filters on the caller's team and every
+# lookup by id is scoped the same way, so editing a URL, an id or a filter in
+# the frontend cannot reach the other team's data.
+#
+# 'all' is not a team: it is the admin's both-teams view. It is only ever stored
+# on a user row and never on a screen, client, campaign, slot or booking.
+
+TEAMS = ("odisha", "raipur")
+ALL_TEAMS = "all"
+TEAM_NAMES = {"odisha": "Odisha Team", "raipur": "Raipur Team", ALL_TEAMS: "All Teams"}
+
+
+def normalize_team(value: str | None) -> str | None:
+    """'Odisha' → 'odisha', 'Admin'/'All Teams' → 'all', anything else → None."""
+    v = (value or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if v in ("all", "all_teams", "admin", "both"):
+        return ALL_TEAMS
+    return v if v in TEAMS else None
+
+
+def user_sees_all_teams(user: dict) -> bool:
+    """Admins, and any user explicitly assigned the 'all' team, span both."""
+    return user.get("role") == "admin" or user.get("team") == ALL_TEAMS
+
+
+class TeamScope:
+    """The team filter for one request: who is asking and which team they are
+    looking at. Restricted users can only ever hold their own team here."""
+
+    def __init__(self, user: dict, active: str):
+        self.user = user
+        self.active = active
+
+    @property
+    def all_teams(self) -> bool:
+        return self.active == ALL_TEAMS
+
+    @property
+    def teams(self) -> list:
+        return list(TEAMS) if self.all_teams else [self.active]
+
+    def where(self, column: str = "team") -> tuple:
+        """SQL predicate + params for a WHERE clause. Always safe to inline:
+        `column` is supplied by this module, never by the request."""
+        if self.all_teams:
+            return "TRUE", []
+        return f"{column} = ?", [self.active]
+
+    def allows(self, team: str | None) -> bool:
+        return self.all_teams or team == self.active
+
+    def guard(self, row, what: str = "Record", column: str = "team"):
+        """404 (not 403) for another team's row — a team must not even be able
+        to learn that an id exists on the other side."""
+        if row is None or not self.allows(row[column]):
+            raise HTTPException(404, f"{what} not found")
+        return row
+
+    def write_team(self, requested: str | None = None) -> str:
+        """Which team a newly created record belongs to."""
+        if not self.all_teams:
+            return self.active            # requested value is ignored on purpose
+        team = normalize_team(requested)
+        if team in TEAMS:
+            return team
+        raise HTTPException(
+            422, "Choose a team (Odisha or Raipur) — you are viewing All Teams")
+
+
+def team_scope(request: Request, user: dict = Depends(require_user)) -> TeamScope:
+    """The one place a request's team is decided. A team user's scope comes from
+    their user row and nowhere else; the X-Team header / ?team= parameter is
+    honoured only for users who legitimately span both teams."""
+    if user_sees_all_teams(user):
+        requested = normalize_team(
+            request.headers.get("x-team") or request.query_params.get("team"))
+        return TeamScope(user, requested or ALL_TEAMS)
+    if user.get("team") not in TEAMS:
+        raise HTTPException(403, "No team assigned to your account — ask your admin")
+    return TeamScope(user, user["team"])
+
+
+def require_admin_scope(scope: TeamScope = Depends(team_scope)) -> TeamScope:
+    if scope.user["role"] != "admin":
+        raise HTTPException(403, "Access denied — admin only")
+    return scope
+
+
+def require_upload_scope(scope: TeamScope = Depends(team_scope)) -> TeamScope:
+    if scope.user["role"] != "admin" and not scope.user.get("can_upload"):
+        raise HTTPException(
+            403, "You don't have media-upload permission — ask your admin to enable it"
+        )
+    return scope
+
+
+@app.get("/api/teams")
+def list_teams(user: dict = Depends(require_user)):
+    """The teams this user may look at, and which one is active."""
+    with get_conn() as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT code, name FROM teams ORDER BY code")]
+    if user_sees_all_teams(user):
+        return {"teams": rows + [{"code": ALL_TEAMS, "name": TEAM_NAMES[ALL_TEAMS]}],
+                "can_switch": True, "user_team": user.get("team") or ALL_TEAMS}
+    return {"teams": [r for r in rows if r["code"] == user.get("team")],
+            "can_switch": False, "user_team": user.get("team")}
+
+
+def log_activity(user_name: str, action: str, detail: str = "",
+                 team: str = ALL_TEAMS) -> None:
     try:
         with get_conn() as conn:
             conn.execute(
-                "INSERT INTO activity_log (user_name, action, detail) VALUES (?,?,?)",
-                (user_name, action, detail[:300]),
+                "INSERT INTO activity_log (user_name, action, detail, team)"
+                " VALUES (?,?,?,?)",
+                (user_name, action, detail[:300], team),
             )
             conn.commit()
     except Exception:                                    # noqa: BLE001
@@ -213,9 +328,11 @@ def login(body: LoginIn, response: Response):
         "mt_session", token, httponly=True, samesite="lax",
         secure=COOKIE_SECURE, max_age=30 * 86400,
     )
-    log.info("Login: %s (%s)", r["name"], r["role"])
-    log_activity(r["name"], "login", "")
+    log.info("Login: %s (%s / %s)", r["name"], r["role"], r["team"])
+    log_activity(r["name"], "login", "", r["team"])
     return {"name": r["name"], "role": r["role"], "username": r["username"],
+            "team": r["team"], "team_name": TEAM_NAMES.get(r["team"], r["team"]),
+            "can_switch_teams": user_sees_all_teams(dict(r)),
             "can_upload": bool(r["can_upload"]) or r["role"] == "admin",
             "token": token}
 
@@ -229,6 +346,9 @@ def logout(response: Response):
 @app.get("/api/me")
 def me(user: dict = Depends(require_user)):
     return {"name": user["name"], "role": user["role"], "username": user["username"],
+            "team": user.get("team"),
+            "team_name": TEAM_NAMES.get(user.get("team"), user.get("team")),
+            "can_switch_teams": user_sees_all_teams(user),
             "can_upload": bool(user.get("can_upload")) or user["role"] == "admin"}
 
 
@@ -280,32 +400,79 @@ class UserIn(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     password: str = Field(min_length=6, max_length=120)
     role: str = Field(pattern="^(admin|sales)$")
+    # Odisha / Raipur / Admin (= all teams). Defaults to Odisha so the existing
+    # single-team workflow keeps working unchanged.
+    team: str = Field(default="odisha", max_length=20)
+
+
+def _user_team(role: str, team: str | None) -> str:
+    """Admins always span both teams; a sales user must sit in exactly one."""
+    if role == "admin":
+        return ALL_TEAMS
+    t = normalize_team(team)
+    if t not in TEAMS:
+        raise HTTPException(422, "Team must be Odisha or Raipur")
+    return t
 
 
 @app.get("/api/users")
-def list_users(_: dict = Depends(require_admin)):
+def list_users(scope: TeamScope = Depends(require_admin_scope)):
+    """Admins see their own team's users; the All Teams view lists everyone."""
+    where, params = scope.where("team")
     with get_conn() as conn:
-        return [dict(r) for r in conn.execute(
-            "SELECT id, username, name, role, can_upload, created_at FROM users ORDER BY id")]
+        rows = conn.execute(
+            f"SELECT id, username, name, role, team, can_upload, created_at"
+            f" FROM users WHERE {where} OR team = 'all' ORDER BY id", params)
+        return [dict(r) for r in rows]
 
 
 @app.post("/api/users", status_code=201)
-def add_user(u: UserIn, _: dict = Depends(require_admin)):
+def add_user(u: UserIn, scope: TeamScope = Depends(require_admin_scope)):
+    team = _user_team(u.role, u.team)
+    # An admin looking at one team can only create users inside that team.
+    if not scope.all_teams and team != scope.active:
+        raise HTTPException(403, f"You can only add users to the {scope.active} team")
     salt, ph = hash_pw(u.password)
     with get_conn() as conn:
         try:
             cur = conn.execute(
-                "INSERT INTO users (username, name, role, salt, pw_hash, created_at)"
-                " VALUES (?,?,?,?,?,?)",
-                (u.username.strip().lower(), u.name.strip(), u.role, salt, ph,
+                "INSERT INTO users (username, name, role, team, salt, pw_hash, created_at)"
+                " VALUES (?,?,?,?,?,?,?)",
+                (u.username.strip().lower(), u.name.strip(), u.role, team, salt, ph,
                  date.today().isoformat()),
             )
         except Exception:
             raise HTTPException(409, "That username already exists")
         conn.commit()
-        log.info("User added: %s (%s)", u.username, u.role)
-        log_activity(_["name"], "user_added", f"{u.name} ({u.role})")
-        return {"created": True, "user_id": cur.lastrowid}
+        log.info("User added: %s (%s / %s)", u.username, u.role, team)
+        log_activity(scope.user["name"], "user_added",
+                     f"{u.name} ({u.role}, {TEAM_NAMES.get(team, team)})", team)
+        return {"created": True, "user_id": cur.lastrowid, "team": team}
+
+
+class UserTeamIn(BaseModel):
+    team: str = Field(max_length=20)
+
+
+@app.patch("/api/users/{user_id}/team")
+def set_user_team(user_id: int, body: UserTeamIn,
+                  scope: TeamScope = Depends(require_admin_scope)):
+    """Move a user to the other team (or to all-teams access)."""
+    with get_conn() as conn:
+        target = conn.execute(
+            "SELECT name, role, team FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not target or not (scope.all_teams or target["team"] == scope.active):
+            raise HTTPException(404, "User not found")
+        team = _user_team(target["role"], body.team)
+        if team == ALL_TEAMS and not scope.all_teams:
+            raise HTTPException(403, "Only an All Teams admin can grant all-team access")
+        # Their existing sessions carry no team, so nothing to invalidate — the
+        # scope is read from the user row on every single request.
+        conn.execute("UPDATE users SET team = ? WHERE id = ?", (team, user_id))
+        conn.commit()
+    log_activity(scope.user["name"], "user_team_changed",
+                 f"{target['name']} → {TEAM_NAMES.get(team, team)}", team)
+    return {"updated": True, "team": team}
 
 
 class PermissionIn(BaseModel):
@@ -314,52 +481,58 @@ class PermissionIn(BaseModel):
 
 @app.patch("/api/users/{user_id}/permissions")
 def set_permissions(user_id: int, body: PermissionIn,
-                    admin: dict = Depends(require_admin)):
+                    scope: TeamScope = Depends(require_admin_scope)):
+    admin = scope.user
     with get_conn() as conn:
-        target = conn.execute("SELECT name FROM users WHERE id = ?", (user_id,)).fetchone()
-        if not target:
-            raise HTTPException(404, "User not found")
+        target = conn.execute(
+            "SELECT name, team FROM users WHERE id = ?", (user_id,)).fetchone()
+        scope.guard(target, "User")
         conn.execute("UPDATE users SET can_upload = ? WHERE id = ?",
                      (body.can_upload, user_id))
         conn.commit()
     log_activity(admin["name"], "permission_changed",
-                 f"{target['name']}: can_upload={'on' if body.can_upload else 'off'}")
+                 f"{target['name']}: can_upload={'on' if body.can_upload else 'off'}",
+                 target["team"])
     return {"updated": True}
 
 
 @app.post("/api/users/{user_id}/logout-all")
-def admin_logout_user(user_id: int, admin: dict = Depends(require_admin)):
+def admin_logout_user(user_id: int, scope: TeamScope = Depends(require_admin_scope)):
     """Force-logout a user from every device."""
+    admin = scope.user
     with get_conn() as conn:
-        target = conn.execute("SELECT name FROM users WHERE id = ?", (user_id,)).fetchone()
-        if not target:
-            raise HTTPException(404, "User not found")
+        target = conn.execute(
+            "SELECT name, team FROM users WHERE id = ?", (user_id,)).fetchone()
+        scope.guard(target, "User")
         conn.execute("UPDATE users SET token_version = token_version + 1 WHERE id = ?",
                      (user_id,))
         conn.commit()
-    log_activity(admin["name"], "force_logout", target["name"])
+    log_activity(admin["name"], "force_logout", target["name"], target["team"])
     return {"ok": True}
 
 
 @app.get("/api/activity")
-def activity(limit: int = 100, _: dict = Depends(require_admin)):
+def activity(limit: int = 100, scope: TeamScope = Depends(require_admin_scope)):
     limit = max(1, min(limit, 500))
+    where, params = scope.where("team")
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT to_char(at, 'DD Mon HH24:MI') AS at, user_name, action, detail"
-            " FROM activity_log ORDER BY at DESC LIMIT ?", (limit,)
+            "SELECT to_char(at, 'DD Mon HH24:MI') AS at, user_name, action, detail, team"
+            f" FROM activity_log WHERE {where} ORDER BY at DESC LIMIT ?",
+            params + [limit],
         ).fetchall()
         return [dict(r) for r in rows]
 
 
 @app.delete("/api/users/{user_id}")
-def delete_user(user_id: int, admin: dict = Depends(require_admin)):
+def delete_user(user_id: int, scope: TeamScope = Depends(require_admin_scope)):
+    admin = scope.user
     if user_id == admin["id"]:
         raise HTTPException(422, "You can't delete your own account")
     with get_conn() as conn:
-        target = conn.execute("SELECT role FROM users WHERE id = ?", (user_id,)).fetchone()
-        if not target:
-            raise HTTPException(404, "User not found")
+        target = conn.execute(
+            "SELECT role, team FROM users WHERE id = ?", (user_id,)).fetchone()
+        scope.guard(target, "User")
         if target["role"] == "admin":
             admins = conn.execute("SELECT COUNT(*) FROM users WHERE role='admin'").fetchone()[0]
             if admins <= 1:
@@ -444,28 +617,31 @@ def screen_payload(conn, screen) -> dict:
 # ---------- routes ----------
 
 @app.get("/api/screens")
-def list_screens(user: dict = Depends(require_user)):
-    """Full inventory with live occupancy, next opening and 30-day calendar."""
+def list_screens(scope: TeamScope = Depends(team_scope)):
+    """Full inventory with live occupancy, next opening and 30-day calendar —
+    only the digital screens belonging to the caller's team."""
+    where, params = scope.where("team")
     with get_conn() as conn:
-        screens = conn.execute("SELECT * FROM screens ORDER BY id").fetchall()
+        screens = conn.execute(
+            f"SELECT * FROM screens WHERE {where} ORDER BY id", params).fetchall()
         return [screen_payload(conn, s) for s in screens]
 
 
 @app.get("/api/screens/{screen_id}")
-def get_screen(screen_id: int, user: dict = Depends(require_user)):
+def get_screen(screen_id: int, scope: TeamScope = Depends(team_scope)):
     with get_conn() as conn:
         screen = conn.execute(
             "SELECT * FROM screens WHERE id = ?", (screen_id,)
         ).fetchone()
-        if not screen:
-            raise HTTPException(404, "Screen not found")
+        scope.guard(screen, "Screen")
         return screen_payload(conn, screen)
 
 
 @app.get("/api/campaigns/live")
-def live_campaigns(user: dict = Depends(require_user)):
-    """Everything on air right now, across all screens."""
+def live_campaigns(scope: TeamScope = Depends(team_scope)):
+    """Everything on air right now, across the team's screens."""
     iso = today().isoformat()
+    where, params = scope.where("s.team")
     with get_conn() as conn:
         rows = conn.execute(
             """
@@ -476,10 +652,10 @@ def live_campaigns(user: dict = Depends(require_user)):
             JOIN screens sc  ON sc.id = s.screen_id
             JOIN campaigns c ON c.id = s.campaign_id
             JOIN clients cl  ON cl.id = c.client_id
-            WHERE s.start_date <= ? AND s.end_date >= ?
+            WHERE s.start_date <= ? AND s.end_date >= ? AND {where}
             ORDER BY s.end_date
-            """,
-            (iso, iso),
+            """.format(where=where),
+            [iso, iso] + params,
         ).fetchall()
         return [
             {**dict(r), "days_left": (date.fromisoformat(r["end_date"]) - today()).days}
@@ -488,9 +664,11 @@ def live_campaigns(user: dict = Depends(require_user)):
 
 
 @app.get("/api/clients")
-def list_clients(user: dict = Depends(require_user)):
+def list_clients(scope: TeamScope = Depends(team_scope)):
+    where, params = scope.where("team")
     with get_conn() as conn:
-        return [dict(r) for r in conn.execute("SELECT * FROM clients ORDER BY company")]
+        return [dict(r) for r in conn.execute(
+            f"SELECT * FROM clients WHERE {where} ORDER BY company", params)]
 
 
 class Booking(BaseModel):
@@ -504,29 +682,34 @@ class Booking(BaseModel):
 
 
 @app.post("/api/campaigns", status_code=201)
-def book_slot(b: Booking, user: dict = Depends(require_user)):
+def book_slot(b: Booking, scope: TeamScope = Depends(team_scope)):
     """Create a campaign + slot if the screen's loop has a free position
-    for the entire requested window."""
+    for the entire requested window. The booking, its campaign and its client
+    all inherit the screen's team, so a booking can never straddle the two."""
+    user = scope.user
     if b.end_date < b.start_date:
         raise HTTPException(422, "end_date must be on or after start_date")
     with get_conn() as conn:
         screen = conn.execute(
             "SELECT * FROM screens WHERE id = ?", (b.screen_id,)
         ).fetchone()
-        if not screen:
-            raise HTTPException(404, "Screen not found")
-        # Find-or-create the client by name (case-insensitive, no duplicates)
+        scope.guard(screen, "Screen")
+        team = screen["team"]
+        # Find-or-create the client by name within this team (case-insensitive).
+        # The same company can be a client of both teams — those stay separate
+        # records so neither team sees the other's pipeline.
         name = b.client_name.strip()
         row = conn.execute(
-            "SELECT id FROM clients WHERE LOWER(company) = LOWER(?)", (name,)
+            "SELECT id FROM clients WHERE LOWER(company) = LOWER(?) AND team = ?",
+            (name, team),
         ).fetchone()
         if row:
             client_id = row["id"]
         else:
             client_id = conn.execute(
-                "INSERT INTO clients (company) VALUES (?)", (name,)
+                "INSERT INTO clients (company, team) VALUES (?,?)", (name, team)
             ).lastrowid
-            log.info("New client auto-created: %s", name)
+            log.info("New client auto-created: %s (%s)", name, team)
 
         # Positions blocked by any overlapping booking
         taken = {
@@ -543,12 +726,13 @@ def book_slot(b: Booking, user: dict = Depends(require_user)):
 
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO campaigns (client_id, name, creative) VALUES (?,?,?)",
-            (client_id, b.campaign_name, b.creative),
+            "INSERT INTO campaigns (client_id, name, creative, team) VALUES (?,?,?,?)",
+            (client_id, b.campaign_name, b.creative, team),
         )
         cur.execute(
             """INSERT INTO slots (screen_id, campaign_id, position_no,
-               start_date, end_date, rate_month, booked_by) VALUES (?,?,?,?,?,?,?)""",
+               start_date, end_date, rate_month, booked_by, team)
+               VALUES (?,?,?,?,?,?,?,?)""",
             (
                 b.screen_id,
                 cur.lastrowid,
@@ -560,13 +744,15 @@ def book_slot(b: Booking, user: dict = Depends(require_user)):
                     * ((b.end_date - b.start_date).days + 1) / 30
                 ),
                 user["name"],
+                team,
             ),
         )
         conn.commit()
-        log.info("Booked '%s' on screen %s (P%s) %s → %s",
-                 b.campaign_name, b.screen_id, free[0], b.start_date, b.end_date)
+        log.info("Booked '%s' on screen %s (P%s) %s → %s [%s]",
+                 b.campaign_name, b.screen_id, free[0], b.start_date, b.end_date, team)
         log_activity(user["name"], "booking_created",
-                     f"{b.client_name} — {b.campaign_name} on screen {b.screen_id}")
+                     f"{b.client_name} — {b.campaign_name} on screen {b.screen_id}",
+                     team)
         return {"booked": True, "position_no": free[0], "campaign_id": cur.lastrowid}
 
 
@@ -582,31 +768,39 @@ class ScreenIn(BaseModel):
     slot_seconds: int = Field(default=15, ge=5, le=120)
     spots_per_day: int = Field(default=360, ge=1)
     rate_month: int = Field(default=0, ge=0)
+    # Only read when the caller is viewing All Teams; a team user's screens
+    # always land in their own team whatever the request body says.
+    team: str | None = Field(default=None, max_length=20)
 
 
 @app.post("/api/screens", status_code=201)
-def add_screen(s: ScreenIn, user: dict = Depends(require_upload)):
-    """Add a new display to the network."""
+def add_screen(s: ScreenIn, scope: TeamScope = Depends(require_upload_scope)):
+    """Add a new display to the network, inside the active team."""
+    user = scope.user
+    team = scope.write_team(s.team)
     with get_conn() as conn:
         cur = conn.execute(
             """INSERT INTO screens (name, location, city, width_ft, height_ft,
-               res_w, res_h, loop_slots, slot_seconds, spots_per_day, rate_month)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+               res_w, res_h, loop_slots, slot_seconds, spots_per_day, rate_month, team)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (s.name, s.location, s.city, s.width_ft, s.height_ft, s.res_w,
-             s.res_h, s.loop_slots, s.slot_seconds, s.spots_per_day, s.rate_month),
+             s.res_h, s.loop_slots, s.slot_seconds, s.spots_per_day, s.rate_month, team),
         )
         conn.commit()
-        log.info("Screen added: %s (%s)", s.name, s.location)
-        log_activity(user["name"], "screen_added", s.name)
-        return {"created": True, "screen_id": cur.lastrowid}
+        log.info("Screen added: %s (%s) [%s]", s.name, s.location, team)
+        log_activity(user["name"], "screen_added", s.name, team)
+        return {"created": True, "screen_id": cur.lastrowid, "team": team}
 
 
 @app.put("/api/screens/{screen_id}")
-def update_screen(screen_id: int, s: ScreenIn, user: dict = Depends(require_upload)):
-    """Update an existing display's details."""
+def update_screen(screen_id: int, s: ScreenIn,
+                  scope: TeamScope = Depends(require_upload_scope)):
+    """Update an existing display's details. The team is not changed here —
+    use PATCH /api/screens/{id}/team for that."""
     with get_conn() as conn:
-        if not conn.execute("SELECT 1 FROM screens WHERE id = ?", (screen_id,)).fetchone():
-            raise HTTPException(404, "Screen not found")
+        scope.guard(
+            conn.execute("SELECT team FROM screens WHERE id = ?", (screen_id,)).fetchone(),
+            "Screen")
         conn.execute(
             """UPDATE screens SET name=?, location=?, city=?, width_ft=?, height_ft=?,
                res_w=?, res_h=?, loop_slots=?, slot_seconds=?, spots_per_day=?, rate_month=?
@@ -619,26 +813,61 @@ def update_screen(screen_id: int, s: ScreenIn, user: dict = Depends(require_uplo
         return {"updated": True}
 
 
-@app.delete("/api/screens/{screen_id}")
-def delete_screen(screen_id: int, user: dict = Depends(require_upload)):
-    """Remove a display and all its bookings."""
+class ScreenTeamIn(BaseModel):
+    team: str = Field(max_length=20)
+
+
+@app.patch("/api/screens/{screen_id}/team")
+def move_screen_team(screen_id: int, body: ScreenTeamIn,
+                     scope: TeamScope = Depends(require_admin_scope)):
+    """Move a display — and everything booked on it — to the other team.
+    All Teams admins only: it is the one operation that crosses the line."""
+    if not scope.all_teams:
+        raise HTTPException(403, "Switch to All Teams to move a display between teams")
+    team = normalize_team(body.team)
+    if team not in TEAMS:
+        raise HTTPException(422, "Team must be Odisha or Raipur")
     with get_conn() as conn:
-        if not conn.execute("SELECT 1 FROM screens WHERE id = ?", (screen_id,)).fetchone():
+        screen = conn.execute(
+            "SELECT name, team FROM screens WHERE id = ?", (screen_id,)).fetchone()
+        if not screen:
             raise HTTPException(404, "Screen not found")
+        conn.execute("UPDATE screens SET team = ? WHERE id = ?", (team, screen_id))
+        # Bookings and their campaigns follow the screen, otherwise the receiving
+        # team would own a display whose live ads it cannot see.
+        conn.execute(
+            "UPDATE campaigns SET team = ? WHERE id IN"
+            " (SELECT campaign_id FROM slots WHERE screen_id = ?)", (team, screen_id))
+        conn.execute("UPDATE slots SET team = ? WHERE screen_id = ?", (team, screen_id))
+        conn.commit()
+    log_activity(scope.user["name"], "screen_team_changed",
+                 f"{screen['name']}: {screen['team']} → {team}", team)
+    return {"updated": True, "team": team}
+
+
+@app.delete("/api/screens/{screen_id}")
+def delete_screen(screen_id: int, scope: TeamScope = Depends(require_upload_scope)):
+    """Remove a display and all its bookings."""
+    user = scope.user
+    with get_conn() as conn:
+        screen = scope.guard(
+            conn.execute("SELECT team FROM screens WHERE id = ?", (screen_id,)).fetchone(),
+            "Screen")
         conn.execute("DELETE FROM slots WHERE screen_id = ?", (screen_id,))
         conn.execute("DELETE FROM screens WHERE id = ?", (screen_id,))
         conn.commit()
         log.warning("Screen %s deleted with all bookings", screen_id)
-        log_activity(user["name"], "screen_deleted", f"screen {screen_id}")
+        log_activity(user["name"], "screen_deleted", f"screen {screen_id}", screen["team"])
         return {"deleted": True}
 
 
 @app.get("/api/bookings")
-def all_bookings(user: dict = Depends(require_user)):
+def all_bookings(scope: TeamScope = Depends(team_scope)):
     """Every booking (live, upcoming, recently ended) for the Manage view."""
     t = today()
     iso = t.isoformat()
     cutoff = (t - timedelta(days=14)).isoformat()
+    where, params = scope.where("s.team")
     with get_conn() as conn:
         rows = conn.execute(
             """
@@ -648,10 +877,10 @@ def all_bookings(user: dict = Depends(require_user)):
             JOIN screens sc  ON sc.id = s.screen_id
             JOIN campaigns c ON c.id = s.campaign_id
             JOIN clients cl  ON cl.id = c.client_id
-            WHERE s.end_date >= ?
+            WHERE s.end_date >= ? AND {where}
             ORDER BY s.start_date DESC
-            """,
-            (cutoff,),
+            """.format(where=where),
+            [cutoff] + params,
         ).fetchall()
         out = []
         for r in rows:
@@ -666,14 +895,14 @@ def all_bookings(user: dict = Depends(require_user)):
 
 
 @app.patch("/api/slots/{slot_id}/stop")
-def stop_slot(slot_id: int, user: dict = Depends(require_user)):
+def stop_slot(slot_id: int, scope: TeamScope = Depends(team_scope)):
     """Take an ad off air now: frees the loop position from today.
     Future bookings are removed entirely."""
+    user = scope.user
     t = today().isoformat()
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM slots WHERE id = ?", (slot_id,)).fetchone()
-        if not row:
-            raise HTTPException(404, "Booking not found")
+        scope.guard(row, "Booking")
         if row["start_date"] > t:
             conn.execute("DELETE FROM slots WHERE id = ?", (slot_id,))
         else:
@@ -681,25 +910,29 @@ def stop_slot(slot_id: int, user: dict = Depends(require_user)):
             conn.execute("UPDATE slots SET end_date = ? WHERE id = ?", (yesterday, slot_id))
         conn.commit()
         log.info("Slot %s taken off air", slot_id)
-        log_activity(user["name"], "ad_stopped", f"slot {slot_id}")
+        log_activity(user["name"], "ad_stopped", f"slot {slot_id}", row["team"])
         return {"stopped": True}
 
 
 @app.delete("/api/slots/{slot_id}")
-def delete_slot(slot_id: int, user: dict = Depends(require_user)):
+def delete_slot(slot_id: int, scope: TeamScope = Depends(team_scope)):
     """Remove a booking entirely (wrong entry)."""
     with get_conn() as conn:
+        row = conn.execute("SELECT team FROM slots WHERE id = ?", (slot_id,)).fetchone()
+        scope.guard(row, "Booking")
         conn.execute("DELETE FROM slots WHERE id = ?", (slot_id,))
         conn.commit()
+        log_activity(scope.user["name"], "booking_deleted", f"slot {slot_id}", row["team"])
         return {"deleted": True}
 
 
 @app.delete("/api/clients/{client_id}")
-def delete_client(client_id: int, user: dict = Depends(require_user)):
+def delete_client(client_id: int, scope: TeamScope = Depends(team_scope)):
     """Remove a client — cascades and removes all their bookings."""
     with get_conn() as conn:
-        if not conn.execute("SELECT 1 FROM clients WHERE id = ?", (client_id,)).fetchone():
-            raise HTTPException(404, "Client not found")
+        client = conn.execute(
+            "SELECT company, team FROM clients WHERE id = ?", (client_id,)).fetchone()
+        scope.guard(client, "Client")
         # Delete all slots (bookings) for this client's campaigns
         conn.execute(
             "DELETE FROM slots WHERE campaign_id IN "
@@ -712,6 +945,8 @@ def delete_client(client_id: int, user: dict = Depends(require_user)):
         conn.execute("DELETE FROM clients WHERE id = ?", (client_id,))
         conn.commit()
         log.warning("Client %s deleted with all campaigns and bookings", client_id)
+        log_activity(scope.user["name"], "client_deleted",
+                     client["company"], client["team"])
         return {"deleted": True}
 
 
@@ -758,7 +993,8 @@ def sync_seed_photos() -> None:
 
 
 @app.post("/api/screens/{screen_id}/photo")
-async def upload_photo(screen_id: int, file: UploadFile = File(...), user: dict = Depends(require_upload)):
+async def upload_photo(screen_id: int, file: UploadFile = File(...),
+                       scope: TeamScope = Depends(require_upload_scope)):
     """Attach a photo to a screen (jpg/png)."""
     ext = (file.filename or "").rsplit(".", 1)[-1].lower()
     if ext not in ("jpg", "jpeg", "png", "webp"):
@@ -767,8 +1003,9 @@ async def upload_photo(screen_id: int, file: UploadFile = File(...), user: dict 
     if len(data) > 8 * 1024 * 1024:
         raise HTTPException(413, "Image too large — keep it under 8 MB")
     with get_conn() as conn:
-        if not conn.execute("SELECT 1 FROM screens WHERE id = ?", (screen_id,)).fetchone():
-            raise HTTPException(404, "Screen not found")
+        scope.guard(
+            conn.execute("SELECT team FROM screens WHERE id = ?", (screen_id,)).fetchone(),
+            "Screen")
         fname = f"screen_{screen_id}.{ext}"
         (photos_dir() / fname).write_bytes(data)
         conn.execute("UPDATE screens SET photo = ? WHERE id = ?", (fname, screen_id))
@@ -783,17 +1020,20 @@ def _overlap_days(s: str, e: str, a: str, b: str) -> int:
     return (date.fromisoformat(hi) - date.fromisoformat(lo)).days + 1
 
 
-def _all_slots(conn):
+def _all_slots(conn, scope: "TeamScope"):
+    where, params = scope.where("s.team")
     return conn.execute(
         """SELECT s.*, sc.name AS screen, sc.loop_slots, c.name AS campaign, cl.company
            FROM slots s JOIN screens sc ON sc.id=s.screen_id
-           JOIN campaigns c ON c.id=s.campaign_id JOIN clients cl ON cl.id=c.client_id"""
+           JOIN campaigns c ON c.id=s.campaign_id JOIN clients cl ON cl.id=c.client_id
+           WHERE {where}""".format(where=where),
+        params,
     ).fetchall()
 
 
 @app.get("/api/revenue")
 def revenue(start: date | None = None, end: date | None = None,
-            _: dict = Depends(require_admin)):
+            scope: TeamScope = Depends(require_admin_scope)):
     """Revenue = the actual Booking Amount of each booking, counted in full,
     attributed to the booking's start date. No proration, no demo values.
     Occupancy is the only day-based metric (it measures inventory, not money)."""
@@ -804,11 +1044,15 @@ def revenue(start: date | None = None, end: date | None = None,
         raise HTTPException(422, "start must be on or before end")
     a, b = start.isoformat(), end.isoformat()
 
+    where, params = scope.where("team")
     with get_conn() as conn:
-        slots = _all_slots(conn)
-        screens = conn.execute("SELECT * FROM screens").fetchall()
-        clients = conn.execute("SELECT created_by FROM clients").fetchall()
-        campaign_count = conn.execute("SELECT COUNT(*) FROM campaigns").fetchone()[0]
+        slots = _all_slots(conn, scope)
+        screens = conn.execute(
+            f"SELECT * FROM screens WHERE {where}", params).fetchall()
+        clients = conn.execute(
+            f"SELECT created_by FROM clients WHERE {where}", params).fetchall()
+        campaign_count = conn.execute(
+            f"SELECT COUNT(*) FROM campaigns WHERE {where}", params).fetchone()[0]
 
     def amt(s) -> int:
         return s["rate_month"] or 0   # stored as the booking's total amount
@@ -865,6 +1109,8 @@ def revenue(start: date | None = None, end: date | None = None,
 
     return {
         "range": {"start": a, "end": b},
+        "team": scope.active,
+        "team_name": TEAM_NAMES.get(scope.active, scope.active),
         "summary": {
             "filtered_revenue": range_total(a, b),
             "today": range_total(iso, iso),
@@ -889,7 +1135,7 @@ def revenue(start: date | None = None, end: date | None = None,
 
 @app.get("/api/export/bookings.csv")
 def export_csv(start: date | None = None, end: date | None = None,
-               _: dict = Depends(require_admin)):
+               scope: TeamScope = Depends(require_admin_scope)):
     import csv
     import io
     t = today()
@@ -898,13 +1144,14 @@ def export_csv(start: date | None = None, end: date | None = None,
     a, b = start.isoformat(), end.isoformat()
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["Screen", "Client", "Campaign", "Position", "Start", "End",
+    w.writerow(["Team", "Screen", "Client", "Campaign", "Position", "Start", "End",
                 "Booking Amount", "Booked By"])
     with get_conn() as conn:
-        for s in _all_slots(conn):
+        for s in _all_slots(conn, scope):
             if not (a <= s["start_date"] <= b):
                 continue
-            w.writerow([s["screen"], s["company"], s["campaign"], s["position_no"],
+            w.writerow([TEAM_NAMES.get(s["team"], s["team"]),
+                        s["screen"], s["company"], s["campaign"], s["position_no"],
                         s["start_date"], s["end_date"], s["rate_month"] or 0,
                         s["booked_by"] or ""])
     buf.seek(0)
@@ -914,13 +1161,14 @@ def export_csv(start: date | None = None, end: date | None = None,
 
 @app.get("/api/export/revenue.xlsx")
 def export_xlsx(start: date | None = None, end: date | None = None,
-                admin: dict = Depends(require_admin)):
+                scope: TeamScope = Depends(require_admin_scope)):
     import io
     from openpyxl import Workbook
-    data = revenue(start, end, admin)
+    data = revenue(start, end, scope)
     wb = Workbook()
     ws = wb.active; ws.title = "Summary"
-    ws.append(["MediaTrack Revenue Report", f"{data['range']['start']} to {data['range']['end']}"])
+    ws.append([f"MediaTrack Revenue Report — {data['team_name']}",
+               f"{data['range']['start']} to {data['range']['end']}"])
     for k, v in data["summary"].items():
         ws.append([k.replace("_", " ").title(), v])
     ws2 = wb.create_sheet("By Screen")
@@ -942,17 +1190,20 @@ def export_xlsx(start: date | None = None, end: date | None = None,
 
 
 @app.get("/api/export/availability.xlsx")
-def export_availability(user: dict = Depends(require_user)):
-    """One click → polished Excel of every screen's availability, for any
+def export_availability(scope: TeamScope = Depends(team_scope)):
+    """One click → polished Excel of the team's screen availability, for any
     logged-in user (sales send this to clients)."""
+    user = scope.user
     import io
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
 
     t = today()
+    where, params = scope.where("team")
     with get_conn() as conn:
-        screens = conn.execute("SELECT * FROM screens ORDER BY name").fetchall()
+        screens = conn.execute(
+            f"SELECT * FROM screens WHERE {where} ORDER BY name", params).fetchall()
         payloads = [screen_payload(conn, s) for s in screens]
 
     wb = Workbook()
@@ -964,7 +1215,8 @@ def export_availability(user: dict = Depends(require_user)):
 
     ws = wb.active
     ws.title = "Available Media"
-    ws.append([f"AJANTA ADVERTISERS — Digital Media Availability — {t.strftime('%d %b %Y')}"])
+    ws.append([f"AJANTA ADVERTISERS — {TEAM_NAMES.get(scope.active, scope.active)} —"
+               f" Digital Media Availability — {t.strftime('%d %b %Y')}"])
     ws["A1"].font = Font(bold=True, size=13)
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=11)
     cols = ["Screen", "Location", "City", "Size (ft)", "Resolution",
@@ -1020,8 +1272,8 @@ def export_availability(user: dict = Depends(require_user)):
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    log_activity(user["name"], "availability_exported", "")
-    fname = f"Ajanta_Available_Media_{t.isoformat()}.xlsx"
+    log_activity(user["name"], "availability_exported", "", scope.active)
+    fname = f"Ajanta_Available_Media_{scope.active}_{t.isoformat()}.xlsx"
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1030,7 +1282,7 @@ def export_availability(user: dict = Depends(require_user)):
 
 
 @app.get("/api/backup")
-def download_backup(user: dict = Depends(require_user)):
+def download_backup(scope: TeamScope = Depends(require_admin_scope)):
     """
     Download a full backup of the live database.
 
@@ -1042,6 +1294,10 @@ def download_backup(user: dict = Depends(require_user)):
     import io
     import subprocess
     stamp = date.today().isoformat()
+    if not scope.all_teams:
+        # A single-team view must not receive a full-cluster dump; fall through
+        # to the JSON export, which is filtered per team.
+        return _json_backup(scope, stamp)
     try:
         out = subprocess.run(
             ["pg_dump", "--no-owner", "--no-privileges", database_url()],
@@ -1058,16 +1314,27 @@ def download_backup(user: dict = Depends(require_user)):
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         log.warning("pg_dump unavailable (%s) — falling back to JSON backup", e)
 
+    return _json_backup(scope, stamp)
+
+
+def _json_backup(scope: "TeamScope", stamp: str):
+    """Table-by-table JSON export, scoped to the teams the caller may see."""
+    import io
     import json
+    where, params = scope.where("team")
     dump = {}
     with get_conn() as conn:
         for table in ("clients", "screens", "campaigns", "slots", "users"):
-            dump[table] = [dict(r) for r in conn.execute(f"SELECT * FROM {table} ORDER BY id")]
+            dump[table] = [
+                dict(r) for r in conn.execute(
+                    f"SELECT * FROM {table} WHERE {where} ORDER BY id", params)
+            ]
+    suffix = "" if scope.all_teams else f"_{scope.active}"
     buf = io.BytesIO(json.dumps(dump, indent=2, default=str).encode())
     return StreamingResponse(
         buf, media_type="application/json",
         headers={"Content-Disposition":
-                 f'attachment; filename="mediatrack_backup_{stamp}.json"'},
+                 f'attachment; filename="mediatrack_backup{suffix}_{stamp}.json"'},
     )
 
 

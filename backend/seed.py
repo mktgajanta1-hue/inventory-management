@@ -1,6 +1,10 @@
 """
 Seed MediaTrack with Ajanta's real digital inventory and live pipeline.
 Run once:  python seed.py
+
+Everything seeded here is Bhubaneswar inventory, so it all belongs to the
+Odisha team. The Raipur team starts with an empty book and adds its own
+displays and clients — the two never share a record.
 """
 
 from datetime import date, timedelta
@@ -8,6 +12,9 @@ from datetime import date, timedelta
 from database import get_conn, init_db
 
 TODAY = date.today()
+
+# The seed inventory is Bhubaneswar — Odisha team.
+TEAM = "odisha"
 
 
 def d(offset: int) -> str:
@@ -66,13 +73,14 @@ def seed_inventory() -> bool:
             return False
         cur.executemany(
             "INSERT INTO screens (name, location, width_ft, height_ft, res_w, res_h,"
-            " loop_slots, slot_seconds, spots_per_day, rate_month, photo)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            SCREENS,
+            " loop_slots, slot_seconds, spots_per_day, rate_month, photo, team)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            [row + (TEAM,) for row in SCREENS],
         )
         cur.executemany(
-            "INSERT INTO clients (company, contact_person, phone, industry) VALUES (?,?,?,?)",
-            CLIENTS,
+            "INSERT INTO clients (company, contact_person, phone, industry, team)"
+            " VALUES (?,?,?,?,?)",
+            [row + (TEAM,) for row in CLIENTS],
         )
         conn.commit()
     return True
@@ -86,14 +94,14 @@ def seed() -> None:
         cur = conn.cursor()
         for screen_id, client_id, name, creative, pos, start, end, rate in SLOTS:
             cur.execute(
-                "INSERT INTO campaigns (client_id, name, creative) VALUES (?,?,?)",
-                (client_id, name, creative),
+                "INSERT INTO campaigns (client_id, name, creative, team) VALUES (?,?,?,?)",
+                (client_id, name, creative, TEAM),
             )
             cur.execute(
                 "INSERT INTO slots (screen_id, campaign_id, position_no, start_date,"
-                " end_date, rate_month, booked_by) VALUES (?,?,?,?,?,?,?)",
+                " end_date, rate_month, booked_by, team) VALUES (?,?,?,?,?,?,?,?)",
                 (screen_id, cur.lastrowid, pos, start, end, rate,
-                 "Krutarth" if screen_id % 2 else "Satish"),
+                 "Krutarth" if screen_id % 2 else "Satish", TEAM),
             )
         conn.commit()
     print(f"Seeded {len(SCREENS)} screens, {len(CLIENTS)} clients, {len(SLOTS)} bookings.")
