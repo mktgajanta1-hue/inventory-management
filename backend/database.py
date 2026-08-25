@@ -322,6 +322,46 @@ CREATE TABLE IF NOT EXISTS activity_log (
     detail    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_activity_at ON activity_log (at DESC);
+
+-- ---------------------------------------------------------------- teams
+-- Two business units operate on the same installation but must never see each
+-- other's inventory, clients, bookings or money. Every business row carries a
+-- `team` code; every query in app.py filters on it. 'all' is not a team — it is
+-- the admin's "both teams" view and is only ever stored on a user row.
+CREATE TABLE IF NOT EXISTS teams (
+    code       TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    created_at TEXT
+);
+
+INSERT INTO teams (code, name, created_at) VALUES
+    ('odisha', 'Odisha Team', CURRENT_DATE::text),
+    ('raipur', 'Raipur Team', CURRENT_DATE::text)
+ON CONFLICT (code) DO NOTHING;
+
+-- Existing installations pre-date the split: everything already in the database
+-- is Bhubaneswar/Odisha inventory, so that is the backfill value.
+ALTER TABLE screens      ADD COLUMN IF NOT EXISTS team TEXT NOT NULL DEFAULT 'odisha';
+ALTER TABLE clients      ADD COLUMN IF NOT EXISTS team TEXT NOT NULL DEFAULT 'odisha';
+ALTER TABLE campaigns    ADD COLUMN IF NOT EXISTS team TEXT NOT NULL DEFAULT 'odisha';
+ALTER TABLE slots        ADD COLUMN IF NOT EXISTS team TEXT NOT NULL DEFAULT 'odisha';
+ALTER TABLE users        ADD COLUMN IF NOT EXISTS team TEXT NOT NULL DEFAULT 'odisha';
+ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS team TEXT NOT NULL DEFAULT 'odisha';
+
+CREATE INDEX IF NOT EXISTS idx_screens_team   ON screens (team);
+CREATE INDEX IF NOT EXISTS idx_clients_team   ON clients (team);
+CREATE INDEX IF NOT EXISTS idx_campaigns_team ON campaigns (team);
+CREATE INDEX IF NOT EXISTS idx_slots_team     ON slots (team);
+CREATE INDEX IF NOT EXISTS idx_activity_team  ON activity_log (team);
+
+-- A company name was globally unique when there was one team. Odisha and Raipur
+-- may both sell to "Union Bank of India", and those are two separate client
+-- records, so uniqueness is now per team.
+ALTER TABLE clients DROP CONSTRAINT IF EXISTS clients_company_key;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_team_company ON clients (team, company);
+
+-- Admin means "all teams" by definition; keep the stored value in step with it.
+UPDATE users SET team = 'all' WHERE role = 'admin' AND team <> 'all';
 """
 
 

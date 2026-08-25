@@ -293,6 +293,11 @@
   .userchip b{color:var(--ivory);font-weight:600}
   .userchip .role{font-family:var(--f-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
     padding:2px 9px;border-radius:999px;border:1px solid rgba(255,59,78,.5);color:var(--red)}
+  .teamwrap{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
+  .teamwrap select{background:var(--glass);border:1px solid var(--line);color:var(--ivory);
+    font-family:inherit;font-size:12px;padding:5px 10px;border-radius:999px;cursor:pointer}
+  .teambadge{font-family:var(--f-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    padding:3px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.22);color:var(--ivory)}
   .linkbtn{background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;text-decoration:underline}
   .linkbtn:hover{color:var(--ivory)}
   /* revenue */
@@ -379,6 +384,9 @@
 <header>
   <div class="plaque"><h1>AJANTA ADVERTISERS</h1><span>MediaTrack · Digital Network</span></div>
   <div class="spacer"></div>
+  <div class="teamwrap hide" id="teamwrap"><span>Team</span>
+    <select id="teamsel" title="Which team's data you are looking at"></select>
+    <span class="teambadge hide" id="teambadge"></span></div>
   <div class="userchip hide" id="userchip"><b id="u-name"></b><span class="role" id="u-role"></span>
     <button class="linkbtn" id="btn-logout">logout</button></div>
   <div class="conn demo" id="conn"><span class="dot"></span><span id="conn-t">demo data</span></div>
@@ -476,6 +484,8 @@
         <div><label>Name</label><input id="s-name" required placeholder="Baramunda LED"></div>
         <div><label>Location</label><input id="s-loc" required placeholder="Baramunda Bus Stand"></div>
         <div><label>City</label><input id="s-city" value="Bhubaneswar"></div>
+        <div class="hide" id="s-team-wrap"><label>Team</label><select id="s-team">
+          <option value="odisha">Odisha</option><option value="raipur">Raipur</option></select></div>
       </div>
       <div class="row">
         <div><label>Width (ft)</label><input id="s-w" type="number" step="0.5" required placeholder="20"></div>
@@ -542,13 +552,15 @@
         <tbody id="rev-sales"></tbody></table></div></div>
     </div>
     <div class="frm no-print"><h3>User Management</h3>
-      <div class="tbl" style="margin-bottom:16px"><table><thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Can Upload</th><th>Added</th><th></th></tr></thead>
+      <div class="tbl" style="margin-bottom:16px"><table><thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Team</th><th>Can Upload</th><th>Added</th><th></th></tr></thead>
       <tbody id="users-body"></tbody></table></div>
       <div class="row">
         <div><label>Username</label><input id="nu-user" placeholder="satish"></div>
         <div><label>Full Name</label><input id="nu-name" placeholder="Satish"></div>
         <div><label>Password</label><input id="nu-pass" type="password" placeholder="min 6 chars"></div>
         <div><label>Role</label><select id="nu-role"><option value="sales">Sales</option><option value="admin">Admin</option></select></div>
+        <div><label>Team</label><select id="nu-team"><option value="odisha">Odisha</option>
+          <option value="raipur">Raipur</option><option value="all">Admin — All Teams</option></select></div>
       </div>
       <button class="btn" type="button" id="nu-add">Add User</button><span class="msg" id="m-user"></span>
     </div>
@@ -601,8 +613,15 @@ window.addEventListener('error', e=>{ try{ toast('Page error: '+e.message, false
   const m=document.getElementById('m-login'); if(m) m.textContent='Page error: '+e.message; }catch{} });
 window.addEventListener('unhandledrejection', e=>{ try{ toast('Error: '+(e.reason?.message||e.reason), false); }catch{} });
 let TOKEN = null; try{ TOKEN = localStorage.getItem('mt_token'); }catch{}
-const authH = () => TOKEN ? {'Authorization':'Bearer '+TOKEN} : {};
-const tokQ = () => TOKEN ? '&token='+encodeURIComponent(TOKEN) : '';
+/* Which team's data this session is looking at. Sent on every request; the
+   backend ignores it for users who belong to a single team, so it is a
+   convenience for admins and never a way around the isolation rules. */
+let TEAM = null; try{ TEAM = localStorage.getItem('mt_team'); }catch{}
+const TEAM_LABEL = {odisha:'Odisha', raipur:'Raipur', all:'All Teams'};
+const authH = () => Object.assign(TOKEN ? {'Authorization':'Bearer '+TOKEN} : {},
+                                  TEAM ? {'X-Team':TEAM} : {});
+const tokQ = () => (TOKEN ? '&token='+encodeURIComponent(TOKEN) : '')
+                 + (TEAM ? '&team='+encodeURIComponent(TEAM) : '');
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = d => new Date(d+'T00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'});
@@ -834,8 +853,47 @@ function applyRole(){
   $('#userchip').classList.remove('hide');
   $('#u-name').textContent = ME.name; $('#u-role').textContent = ME.role;
   $('#nav-rev').classList.toggle('hide', ME.role!=='admin');
+  applyTeam();
   applyUploadPerms();
 }
+
+/* Admins pick a team (or All Teams); everyone else just sees which team they
+   are in — the choice would be meaningless, the backend pins them either way. */
+function applyTeam(){
+  if(!ME) return;
+  const wrap = $('#teamwrap'), sel = $('#teamsel'), badge = $('#teambadge');
+  wrap.classList.remove('hide');
+  if(ME.can_switch_teams){
+    if(!TEAM) TEAM = 'all';
+    sel.classList.remove('hide'); badge.classList.add('hide');
+    sel.innerHTML = ['odisha','raipur','all']
+      .map(t=>`<option value="${t}"${t===TEAM?' selected':''}>${TEAM_LABEL[t]}</option>`).join('');
+  }else{
+    TEAM = ME.team || null;
+    sel.classList.add('hide'); badge.classList.remove('hide');
+    badge.textContent = TEAM_LABEL[TEAM] || TEAM || '\u2014';
+  }
+  try{ TEAM ? localStorage.setItem('mt_team', TEAM) : localStorage.removeItem('mt_team'); }catch{}
+  // A team-scoped admin must say which team a new display belongs to.
+  $('#s-team-wrap').classList.toggle('hide', !(ME.can_switch_teams && TEAM === 'all'));
+  if(TEAM && TEAM !== 'all'){ $('#s-team').value = TEAM; $('#nu-team').value = TEAM; }
+}
+
+/* An admin account always spans both teams — reflect that in the form. */
+$('#nu-role').addEventListener('change', e=>{
+  const t = $('#nu-team');
+  if(e.target.value === 'admin'){ t.value = 'all'; t.disabled = true; }
+  else { t.disabled = false; if(t.value === 'all') t.value = (TEAM && TEAM !== 'all') ? TEAM : 'odisha'; }
+});
+
+$('#teamsel').addEventListener('change', e=>{
+  TEAM = e.target.value;
+  try{ localStorage.setItem('mt_team', TEAM); }catch{}
+  applyTeam();
+  toast('Showing ' + (TEAM_LABEL[TEAM] || TEAM));
+  firstPaint = true; loadData();
+  if(ME && ME.role==='admin'){ loadRevenue(); loadUsers(); loadActivity(); }
+});
 $('#f-login').addEventListener('submit', async e=>{
   e.preventDefault();
   $('#m-login').textContent='';
@@ -843,7 +901,9 @@ $('#f-login').addEventListener('submit', async e=>{
     const d = await post('/api/login', {username:$('#l-user').value.trim(), password:$('#l-pass').value});
     TOKEN = d.token;
     try{ localStorage.setItem('mt_token', d.token); }catch{}
-    ME = {name:d.name, role:d.role, username:d.username};
+    ME = {name:d.name, role:d.role, username:d.username, team:d.team,
+          can_switch_teams:d.can_switch_teams, can_upload:d.can_upload};
+    TEAM = d.can_switch_teams ? (TEAM || 'all') : d.team;
     $('#login').classList.add('hide');
     applyRole(); toast('Welcome, '+ME.name);
     firstPaint = true; loadData();
@@ -851,7 +911,7 @@ $('#f-login').addEventListener('submit', async e=>{
 });
 $('#btn-logout').addEventListener('click', async ()=>{
   try{ await post('/api/logout'); }catch{}
-  try{ localStorage.removeItem('mt_token'); }catch{}
+  try{ localStorage.removeItem('mt_token'); localStorage.removeItem('mt_team'); }catch{}
   location.reload();
 });
 function flash(id, text, ok){
@@ -882,11 +942,13 @@ $('#f-screen').addEventListener('submit', async e=>{
       width_ft:+$('#s-w').value, height_ft:+$('#s-h').value,
       res_w:+($('#s-rw').value||0), res_h:+($('#s-rh').value||0),
       loop_slots:+$('#s-loop').value, slot_seconds:+$('#s-sec').value,
-      rate_month:+($('#s-rate').value||0)});
+      rate_month:+($('#s-rate').value||0),
+      team: (ME && ME.can_switch_teams && TEAM === 'all') ? $('#s-team').value : undefined});
     const pf = photoFile('s-photo');
     if(pf){
       const fd = new FormData(); fd.append('file', pf);
-      const pr = await fetch(API+`/api/screens/${created.screen_id}/photo`,{method:'POST',body:fd});
+      const pr = await fetch(API+`/api/screens/${created.screen_id}/photo`,
+        {method:'POST',credentials:'same-origin',headers:authH(),body:fd});
       if(!pr.ok) flash('#m-screen','display added, photo failed',false);
     }
     flash('#m-screen','display added to network',true); toast('Display added');
@@ -916,7 +978,8 @@ $('#f-edit').addEventListener('submit', async e=>{
       rate_month:+($('#e-rate').value||0)}, 'PUT');
     const pf = photoFile('e-photo');
     if(pf){ const fd=new FormData(); fd.append('file',pf);
-      await fetch(API+`/api/screens/${id}/photo`,{method:'POST',body:fd}); $('#e-photo').value=''; }
+      await fetch(API+`/api/screens/${id}/photo`,
+        {method:'POST',credentials:'same-origin',headers:authH(),body:fd}); $('#e-photo').value=''; }
     flash('#m-edit','display updated',true); toast('Display updated'); loadData();
   }catch(err){ flash('#m-edit',err.message,false); }
 });
@@ -1178,7 +1241,7 @@ $('#cp-save').addEventListener('click', async ()=>{
 $('#btn-logout-all').addEventListener('click', async ()=>{
   if(!confirm('Logout from ALL devices? Every session (phone, office, everywhere) ends now.')) return;
   try{ await post('/api/logout-all'); }catch{}
-  try{ localStorage.removeItem('mt_token'); }catch{}
+  try{ localStorage.removeItem('mt_token'); localStorage.removeItem('mt_team'); }catch{}
   location.reload();
 });
 
@@ -1297,6 +1360,7 @@ async function loadUsers(){
     $('#users-body').innerHTML = users.map(u=>`
       <tr><td class="mono">${esc(u.username)}</td><td>${esc(u.name)}</td>
       <td><span class="pill ${u.role==='admin'?'up':'live'}">${u.role}</span></td>
+      <td><span class="pill ${u.team==='all'?'up':'live'}">${esc(TEAM_LABEL[u.team]||u.team||'-')}</span></td>
       <td>${u.role==='admin' ? '<span class="pill up">always</span>'
         : `<input type="checkbox" class="permtoggle" data-uid="${u.id}" ${u.can_upload?'checked':''} title="Allow this user to add/edit displays and upload photos">`}</td>
       <td class="mono">${u.created_at||'—'}</td>
@@ -1307,7 +1371,7 @@ async function loadUsers(){
 $('#nu-add').addEventListener('click', async ()=>{
   try{
     await post('/api/users',{username:$('#nu-user').value.trim(), name:$('#nu-name').value.trim(),
-      password:$('#nu-pass').value, role:$('#nu-role').value});
+      password:$('#nu-pass').value, role:$('#nu-role').value, team:$('#nu-team').value});
     flash('#m-user','user added',true); toast('User added');
     $('#nu-user').value=$('#nu-name').value=$('#nu-pass').value='';
     loadUsers();
@@ -1340,7 +1404,9 @@ setTimeout(()=>$('#splash').classList.add('done'), 2600);
   if(location.protocol==='file:'){ loadData(); return; }   // demo mode: no login
   try{
     const r = await fetch(API+'/api/me', {credentials:'same-origin', headers:authH()});
-    if(r.ok){ ME = await r.json(); applyRole(); loadData(); }
+    if(r.ok){ ME = await r.json();
+      TEAM = ME.can_switch_teams ? (TEAM || 'all') : ME.team;
+      applyRole(); loadData(); }
     else showLogin();
   }catch{ showLogin(); }
 })();

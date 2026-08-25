@@ -47,14 +47,43 @@ mediatrack/
 └── README.md
 ```
 
+## Teams — Odisha and Raipur
+
+Two business units share one installation and never see each other's book.
+
+* Every business row carries a `team` code: `screens`, `clients`, `campaigns`,
+  `slots`, `users` and `activity_log`. The `teams` table holds the two codes
+  (`odisha`, `raipur`).
+* Each user has a **Team**: *Odisha*, *Raipur*, or *Admin* (all teams, stored as
+  `all`). A team user's scope comes from their user row and nothing else — the
+  `X-Team` header and `?team=` parameter are read **only** for users who
+  legitimately span both teams, so editing a URL, an id or a filter in the
+  browser cannot reach the other team's data.
+* Isolation is enforced in the API layer, not the UI: every list query filters on
+  team and every lookup by id is team-scoped, returning **404** for the other
+  team's row (404, not 403, so an id's existence stays private). That covers
+  dashboards, inventory, digital screens, bookings, clients, live campaigns,
+  revenue, the activity log, search/filter results and every Excel/CSV export.
+* Admins get a team switcher in the header — **Odisha / Raipur / All Teams** —
+  and their dashboard, revenue and reports follow the selection.
+* Upgrading an existing database is automatic: everything already in it is
+  Bhubaneswar inventory and is backfilled to the Odisha team; existing admins
+  become all-teams. Raipur starts empty and adds its own displays and clients.
+* A display can be moved between teams (with its bookings) by an All Teams admin:
+  `PATCH /api/screens/{id}/team`.
+
 ## Data model
 
 | Table     | Purpose                                                                 |
 |-----------|-------------------------------------------------------------------------|
-| clients   | Advertiser directory (company, contact, industry)                        |
-| screens   | Physical inventory: size, resolution, loop capacity, slot length, rate  |
-| campaigns | A client's creative/commercial container                                 |
-| slots     | The airtime reservation: campaign ⇄ screen ⇄ loop position ⇄ date range |
+| teams     | The two business units: `odisha`, `raipur`                               |
+| clients   | Advertiser directory (company, contact, industry) — one team             |
+| screens   | Physical inventory: size, resolution, loop capacity, slot length, rate — one team |
+| campaigns | A client's creative/commercial container — one team                      |
+| slots     | The airtime reservation: campaign ⇄ screen ⇄ loop position ⇄ date range — one team |
+
+A company that both teams sell to is two client records, one per team: company
+names are unique **per team**, not globally.
 
 **Availability is never stored — always derived from `slots`,** so it can't go stale.
 A screen with an 8-slot loop and 5 overlapping bookings today has 3 open slots today.
@@ -69,6 +98,13 @@ A screen with an 8-slot loop and 5 overlapping bookings today has 3 open slots t
 | GET    | /api/clients          | Advertiser directory                                   |
 | POST   | /api/campaigns        | Book a slot (auto-assigns first free loop position, rejects if loop is full for the window) |
 | GET    | /api/health           | Liveness + readiness (database, photo storage) — no auth |
+| GET    | /api/teams            | The teams the caller may view, and whether they can switch |
+| PATCH  | /api/screens/{id}/team| Move a display + its bookings to the other team (All Teams admin) |
+| PATCH  | /api/users/{id}/team  | Move a user to the other team (admin)                  |
+
+Admins select the team they are looking at with an `X-Team: odisha|raipur|all`
+header (or `?team=` on download links). The header is ignored for users who
+belong to a single team.
 
 Booking example:
 
